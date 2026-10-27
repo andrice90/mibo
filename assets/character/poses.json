@@ -14,9 +14,96 @@
     "oh": "mibo-vowel-oh.png",
     "oo": "mibo-vowel-oo.png"
   },
+  "idle_rotation": [
+    "mibo-idle-1.png",
+    "mibo-idle-2.png",
+    "mibo-idle-3.png",
+    "mibo-idle-4.png"
+  ],
+  "vowel_transitions": {
+    "ah": {
+      "sequence_at_3_to_4_fps": [
+        "mibo-vowel-rest.png",
+        "mibo-anim-ah-t1.png",
+        "mibo-anim-ah-t2.png",
+        "mibo-vowel-ah.png",
+        "mibo-anim-ah-t2.png",
+        "mibo-anim-ah-t1.png",
+        "mibo-vowel-rest.png"
+      ],
+      "t1": "40 percent open",
+      "t2": "70 percent open"
+    },
+    "ee": {
+      "sequence_at_3_to_4_fps": [
+        "mibo-vowel-rest.png",
+        "mibo-anim-ee-t1.png",
+        "mibo-anim-ee-t2.png",
+        "mibo-vowel-ee.png",
+        "mibo-anim-ee-t2.png",
+        "mibo-anim-ee-t1.png",
+        "mibo-vowel-rest.png"
+      ],
+      "t1": "40 percent open",
+      "t2": "70 percent open"
+    },
+    "eh": {
+      "sequence_at_3_to_4_fps": [
+        "mibo-vowel-rest.png",
+        "mibo-anim-eh-t1.png",
+        "mibo-anim-eh-t2.png",
+        "mibo-vowel-eh.png",
+        "mibo-anim-eh-t2.png",
+        "mibo-anim-eh-t1.png",
+        "mibo-vowel-rest.png"
+      ],
+      "t1": "40 percent open",
+      "t2": "70 percent open"
+    },
+    "oh": {
+      "sequence_at_3_to_4_fps": [
+        "mibo-vowel-rest.png",
+        "mibo-anim-oh-t1.png",
+        "mibo-anim-oh-t2.png",
+        "mibo-vowel-oh.png",
+        "mibo-anim-oh-t2.png",
+        "mibo-anim-oh-t1.png",
+        "mibo-vowel-rest.png"
+      ],
+      "t1": "40 percent open",
+      "t2": "70 percent open"
+    },
+    "oo": {
+      "sequence_at_3_to_4_fps": [
+        "mibo-vowel-rest.png",
+        "mibo-anim-oo-t1.png",
+        "mibo-anim-oo-t2.png",
+        "mibo-vowel-oo.png",
+        "mibo-anim-oo-t2.png",
+        "mibo-anim-oo-t1.png",
+        "mibo-vowel-rest.png"
+      ],
+      "t1": "40 percent open",
+      "t2": "70 percent open"
+    }
+  },
+  "fun_loops": {
+    "basketball_bounce_3_frames": [
+      "mibo-fun-basketball-1.png",
+      "mibo-fun-basketball-2.png",
+      "mibo-fun-basketball-3.png"
+    ],
+    "juggling_3_frames": [
+      "mibo-fun-juggling-1.png",
+      "mibo-fun-juggling-2.png",
+      "mibo-fun-juggling-3.png"
+    ]
+  },
   "notes": [
     "Mouth shapes are drawn teaching mouths, larger than the source smile.",
     "Swap the whole pose per phoneme; hold each pose, do not interpolate.",
-    "Wave/celebrate keep the rest mouth; add vowel variants per body pose only when a lesson needs them."
+    "Each body pose frame has its own mouth centre (MOUTH_BY_FRAME); frame 17 celebrate is squished and lower.",
+    "Wave/celebrate keep the rest mouth; add vowel variants per body pose only when a lesson needs them.",
+    "Fun props are drawn shapes on the idle body; a real basketball or juggling sequence in Mibo's own arms needs hand-drawn frames later."
   ]
 }
