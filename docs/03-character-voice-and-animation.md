@@ -1,6 +1,6 @@
 # 03 — Character, voice & animation
 
-Status: Draft, updated by PROJECT #44. Mibo is the founder's mint round blob from `assets/mibo-wave.gif`, a **wise teacher** (PROJECT #25), voiced by a **licensed TTS character voice** (PROJECT #13, #37). Animation is **2D sprite poses at 6–8 fps**, not Rive/3D: body poses extracted from the GIF plus drawn vowel mouth shapes, in `assets/character/` (built by `tools/build_mibo_poses.py`, base upscaled 3x before mouths are drawn). The Rive viseme design below is parked as a post-hackathon option; its phoneme-timing tracks become pose-swap tracks.
+Status: Draft, updated by PROJECT #44. Mibo is the founder's mint round blob from `assets/mibo-wave.gif`, a **wise teacher** (PROJECT #25), voiced by a **licensed TTS character voice** (PROJECT #13, #37). Animation is **2D sprite poses at 3–4 fps**, not Rive/3D: body poses extracted from the GIF plus drawn vowel mouth shapes, in `assets/character/` (built by `tools/build_mibo_poses.py`, base upscaled 3x before mouths are drawn). The Rive viseme design below is parked as a post-hackathon option; its phoneme-timing tracks become pose-swap tracks.
 
 ## 1. Character design brief (for generation)
 

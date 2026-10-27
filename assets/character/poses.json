@@ -1,5 +1,5 @@
 {
-  "style": "2D sprite poses, rotate at 6-8 fps with holds (no tweening)",
+  "style": "2D sprite poses, rotate at 3-4 fps with holds (no tweening)",
   "source": "assets/mibo-wave.gif frames 0 (idle), 8 (wave), 17 (celebrate)",
   "poses": {
     "idle": "mibo-idle.png",

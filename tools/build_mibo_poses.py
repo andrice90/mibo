@@ -8,7 +8,7 @@ poses.json. The GIF's peach background (255, 235, 218) is removed by
 flood fill from the frame edges, so enclosed colours (cheeks, highlights)
 survive. Mouth shapes are drawn over the original smile as chunky
 teaching mouths. Body poses come from separate GIF frames, so animation
-is pose rotation at 6-8 fps with holds, not smooth tweening.
+is pose rotation at 3-4 fps with holds, not smooth tweening.
 """
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def main() -> None:
     sheet.save(OUT / "preview-sheet.png")
 
     manifest = {
-        "style": "2D sprite poses, rotate at 6-8 fps with holds (no tweening)",
+        "style": "2D sprite poses, rotate at 3-4 fps with holds (no tweening)",
         "source": "assets/mibo-wave.gif frames 0 (idle), 8 (wave), 17 (celebrate)",
         "poses": {
             "idle": "mibo-idle.png",
