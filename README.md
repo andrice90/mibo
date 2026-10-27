@@ -1,6 +1,10 @@
-# mibo
+<p align="center">
+  <img src="assets/mibo-wave.gif" alt="Mibo, a mint-colored friendly blob monster, waving" width="360">
+</p>
 
-**Playful speech practice for families — guided by a character who shows kids how sounds are made.**
+<h1 align="center">mibo</h1>
+
+<p align="center"><strong>Playful speech practice for families — guided by a character who shows kids how sounds are made.</strong></p>
 
 mibo is an iOS app for parents and their 4–7 year-olds. A friendly animated character, Mibo, leads short daily speech-practice lessons: a parent picks today's exercises, Mibo models each sound with an exaggerated, easy-to-copy mouth, the child practises words and sound games, and the parent sees clear progress plus one simple idea for practising at home.
 
