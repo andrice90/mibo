@@ -1,0 +1,22 @@
+{
+  "style": "2D sprite poses, rotate at 6-8 fps with holds (no tweening)",
+  "source": "assets/mibo-wave.gif frames 0 (idle), 8 (wave), 17 (celebrate)",
+  "poses": {
+    "idle": "mibo-idle.png",
+    "wave": "mibo-wave.png",
+    "celebrate": "mibo-celebrate.png"
+  },
+  "vowels_on_idle_body": {
+    "rest_closed": "mibo-vowel-rest.png",
+    "ah": "mibo-vowel-ah.png",
+    "ee": "mibo-vowel-ee.png",
+    "eh": "mibo-vowel-eh.png",
+    "oh": "mibo-vowel-oh.png",
+    "oo": "mibo-vowel-oo.png"
+  },
+  "notes": [
+    "Mouth shapes are drawn teaching mouths, larger than the source smile.",
+    "Swap the whole pose per phoneme; hold each pose, do not interpolate.",
+    "Wave/celebrate keep the rest mouth; add vowel variants per body pose only when a lesson needs them."
+  ]
+}
