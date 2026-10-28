@@ -208,7 +208,7 @@
   const ORIGINAL = JSON.parse(JSON.stringify(M.VISEMES));
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const settings = { energy: reduce ? 0.25 : 0.7, bounce: 0.55, mouthScale: 1.15, outline: 13, talkSpeed: 1, brows: true,
-    fps: 12, boil: 1, bleed: 1, paper: 0.6, view: 'both', swap: false };
+    fps: 12, boilFps: 3, boil: 1, bleed: 1, paper: 0.6, view: 'both', swap: false };
 
   // ---- remembered tuning (per viewer, optional)
   const KEY = 'mibo-style-ab-v1';
@@ -353,7 +353,7 @@
   };
 
   // ---- hand-drawn sliders
-  const SK = [['fps', 'Frame rate', 6, 24, 1], ['boil', 'Line boil', 0, 2, 0.05], ['bleed', 'Colour offset', 0, 2, 0.05], ['paper', 'Paper grain', 0, 1, 0.05]];
+  const SK = [['fps', 'Motion fps', 6, 60, 1], ['boilFps', 'Boil fps', 1, 8, 0.5], ['boil', 'Line boil', 0, 2, 0.05], ['bleed', 'Colour offset', 0, 2, 0.05], ['paper', 'Paper grain', 0, 1, 0.05]];
   const skHost = document.getElementById('sketchSliders');
   for (const [k, label, a, b, st] of SK) slider(skHost, 's-' + k, label, a, b, st, settings[k], v => { settings[k] = v; persist(); labelStages(); });
 
@@ -381,7 +381,7 @@
       const leftIsA = !settings.swap;
       A.label.textContent = leftIsA ? 'Left' : 'Right'; B.label.textContent = leftIsA ? 'Right' : 'Left';
     } else {
-      A.label.textContent = 'A · Clean 60 fps'; B.label.textContent = `B · Hand-drawn ${settings.fps} fps`;
+      A.label.textContent = 'A · Clean 60 fps'; B.label.textContent = `B · Hand-drawn ${settings.fps} fps · boil ${settings.boilFps}`;
     }
   }
   function applyView() {
@@ -418,7 +418,7 @@
   function vote(side) {
     const leftIsA = !settings.swap;
     const winner = side === 'tie' ? 'tie' : (side === 'L') === leftIsA ? 'A' : 'B';
-    votes[winner]++; votes.log.push({ winner, at: new Date().toISOString(), fps: settings.fps, boil: settings.boil });
+    votes[winner]++; votes.log.push({ winner, at: new Date().toISOString(), fps: settings.fps, boilFps: settings.boilFps, boil: settings.boil });
     saveVotes(); renderTally();
     abStatus.textContent = winner === 'tie' ? "Logged as can't tell." : `That was ${winner === 'A' ? 'A · Clean' : 'B · Hand-drawn'}.`;
     blind = null; voteBtns.forEach(b => { b.hidden = true; }); $('blindStart').hidden = false;
@@ -463,18 +463,19 @@
     }
   }
 
-  // B is drawn "on twos": it samples the same puppet but only redraws at the
-  // chosen frame rate, cycling three wobble variants so lines boil when still.
-  let last = performance.now(), acc = 1, boilFrame = 0;
+  // B samples the same puppet but only redraws at its own motion frame rate.
+  // The line boil runs on a separate, slower clock: it steps through three
+  // wobble variants a few times a second, so lines shimmer even when Mibo is still.
+  let last = performance.now(), acc = 1, boilAcc = 0, boilFrame = 0;
   function frame(now) {
     const dt = (now - last) / 1000; last = now;
     mibo.update(dt);
     const [A, B] = stages;
     if (!A.wrap.hidden) render(A, mibo.P, 0);
-    acc += dt;
+    acc += dt; boilAcc += dt;
+    if (boilAcc >= 1 / settings.boilFps) { boilAcc %= 1 / settings.boilFps; boilFrame = (boilFrame + 1) % 3; B.dirty = true; }
     if (!B.wrap.hidden && (acc >= 1 / settings.fps || B.dirty)) {
       acc = acc >= 1 / settings.fps ? acc % (1 / settings.fps) : acc;
-      boilFrame = (boilFrame + 1) % 3;
       render(B, mibo.P, boilFrame); B.dirty = false;
     }
     requestAnimationFrame(frame);
