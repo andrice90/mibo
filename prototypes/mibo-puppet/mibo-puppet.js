@@ -40,8 +40,10 @@ const FACE = {
 };
 // Arm angles: degrees from straight down, positive swings away from the body.
 const ARMS = {
-  L: { root: [-330, -405], len: 235, w: 104, side: -1 },  // front arm, resting on the belly
-  R: { root: [452, -335], len: 228, w: 104, side: 1 },    // side arm
+  // ext: how far the arm's base reaches back into the body (fraction of len),
+  // so the shoulder end never crosses the body outline and leaves a notch.
+  L: { root: [-330, -405], len: 235, w: 104, side: -1, ext: 0.12 },  // front arm, resting on the belly
+  R: { root: [452, -335], len: 228, w: 104, side: 1, ext: 0.45 },    // side arm
 };
 
 // ------------------------------------------------------------------ presets
@@ -178,17 +180,20 @@ function armGeom(arm, angleDeg, bend, d) {
   const a = angleDeg * Math.PI / 180;
   const dir = [Math.sin(a) * arm.side, Math.cos(a)];
   const nrm = [-dir[1], dir[0]];
-  const N = 8, left = [], right = [], center = [];
+  const N = 10, left = [], right = [], center = [], us = [];
+  const ext = arm.ext || 0;
   const curl = bend * arm.len * 0.35 * arm.side;  // positive bend curls the tip inward
   for (let i = 0; i <= N; i++) {
-    const u = i / N, off = curl * u * u;
+    const u = -ext + (1 + ext) * i / N, off = curl * Math.max(u, 0) ** 2;
+    us.push(u);
     center.push([rootPt[0] + dir[0] * arm.len * u + nrm[0] * off, rootPt[1] + dir[1] * arm.len * u + nrm[1] * off]);
   }
   for (let i = 0; i <= N; i++) {
     const a0 = center[Math.max(0, i - 1)], a1 = center[Math.min(N, i + 1)];
     let tx = a1[0] - a0[0], ty = a1[1] - a0[1];
     const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-    const hw = arm.w * (1 - 0.16 * (i / N)) / 2;
+    const u = us[i];
+    const hw = arm.w * (u < 0 ? 1 + 0.3 * (-u / ext) : 1 - 0.16 * u) / 2;  // flares into the body like goo
     left.push([center[i][0] - ty * hw, center[i][1] + tx * hw]);
     right.push([center[i][0] + ty * hw, center[i][1] - tx * hw]);
   }
@@ -357,7 +362,7 @@ class CleanPen {
     c.fillStyle = COLORS.body; c.fill(R); c.fill(B); c.fill(L);
     // Each part is shaded under its own clip: a union clip leaves holes where
     // the paths wind in opposite directions. Arms only where they leave the body.
-    const top = d(0, -990), bot = d(0, 0), sc = d(520, -260);
+    const f = this.f || 1, top = d(0, -990), bot = d(0, 0), sc = d(520 * f, -260);
     const g = c.createLinearGradient(top[0], top[1], bot[0], bot[1]);
     g.addColorStop(0, 'rgba(255,255,255,0.18)'); g.addColorStop(0.45, 'rgba(255,255,255,0)');
     g.addColorStop(1, 'rgba(18,140,95,0.24)');
@@ -472,7 +477,7 @@ class SketchPen extends CleanPen {
     c.save(); c.globalAlpha = 0.22; c.fillStyle = SKETCH.body; c.fill(union(2, 1)); c.restore();
     c.save(); c.clip(u);
     // wet-in-wet: a light top and a deeper pool low on the body
-    const hi = d(-190, -760), lo = d(220, -120);
+    const f = this.f || 1, hi = d(-190 * f, -760), lo = d(220 * f, -120);
     let g = c.createRadialGradient(hi[0], hi[1], 20, hi[0], hi[1], 420);
     g.addColorStop(0, 'rgba(255,255,250,0.55)'); g.addColorStop(1, 'rgba(255,255,250,0)');
     c.fillStyle = g; c.fillRect(...box);
@@ -480,10 +485,10 @@ class SketchPen extends CleanPen {
     g.addColorStop(0, 'rgba(60,170,125,0.42)'); g.addColorStop(1, 'rgba(60,170,125,0)');
     c.fillStyle = g; c.fillRect(...box);
     // pencil hatching for the shadow side
-    const sc = d(360, -170);
+    const sc = d(360 * f, -170);
     c.beginPath(); c.ellipse(sc[0], sc[1], 370, 260, -0.3, 0, TAU); c.clip();
     c.strokeStyle = SKETCH.hatch; c.lineCap = 'round';
-    const dir = [0.5, -0.866], perp = [0.866, 0.5];
+    const dir = [0.5 * f, -0.866], perp = [0.866 * f, 0.5];
     for (let k = -20; k <= 20; k++) {
       if (hash(k * 3.1 + this.seed) < 0.18) continue;
       const cx = sc[0] + perp[0] * k * 21, cy = sc[1] + perp[1] * k * 21;
@@ -531,7 +536,7 @@ function makePen(ctx, opts) { return opts.style === 'sketch' ? new SketchPen(ctx
 
 // ------------------------------------------------------------------ rig
 
-function drawEye(pen, cx, cy, r, sx, sy, E) {
+function drawEye(pen, cx, cy, r, sx, sy, E, f = 1) {
   const ctx = pen.ctx;
   const rx = r * sx, ryFull = r * sy, ry = ryFull * clamp(E.open, 0, 1.2);
   if (E.open < 0.14) {
@@ -556,9 +561,10 @@ function drawEye(pen, cx, cy, r, sx, sy, E) {
   const eye = pen.fill(ellipsePts(cx, cy, rx, ry, 44), 'eye');
   ctx.clip(eye);
   pen.fill(ellipsePts(cx, cy + ry * 0.45, rx * 0.7, ry * 0.42, 36), 'eyeLow');
+  // glints keep the light top-left on screen, even when Mibo faces the other way
   const gx = -E.lookX * rx * 0.06;
-  pen.fill(ellipsePts(cx - rx * 0.3 + gx, cy - ry * 0.3, rx * 0.24 * E.sparkle, rx * 0.24 * E.sparkle, 24), 'glint');
-  pen.fill(ellipsePts(cx + rx * 0.34 + gx, cy - ry * 0.34, rx * 0.11 * E.sparkle, rx * 0.11 * E.sparkle, 16), 'glint');
+  pen.fill(ellipsePts(cx + f * (-rx * 0.3) + gx, cy - ry * 0.3, rx * 0.24 * E.sparkle, rx * 0.24 * E.sparkle, 24), 'glint');
+  pen.fill(ellipsePts(cx + f * (rx * 0.34) + gx, cy - ry * 0.34, rx * 0.11 * E.sparkle, rx * 0.11 * E.sparkle, 16), 'glint');
   ctx.restore();
 }
 
@@ -624,23 +630,27 @@ function drawMouth(pen, cx, cy, sx, sy, P) {
  */
 function drawMibo(ctx, P, opts = {}) {
   const pen = makePen(ctx, opts);
+  const f = P.facing || 1;
+  pen.f = f;
+  const lx = P.lookX * f;  // gaze is in screen space; convert into the (possibly mirrored) body
   const lift = clamp(-P.y / 500, 0, 1);
   pen.shadow(P.x, 470 * (1 + (1 - P.sy) * 0.9) * (1 + P.spread * 0.6) * (1 - lift * 0.45), 42 * (1 - lift * 0.4), 0.18 * (1 - lift * 0.6));
   ctx.save();
   ctx.translate(P.x, P.y);
   ctx.translate(0, -470); ctx.rotate(P.tilt * Math.PI / 180); ctx.translate(0, 470);
+  ctx.scale(f, 1);  // facing: f = -1 puts the other arm in front
   const d = bodyDeformer(P);
   const body = splinePts(BODY.map(p => d(p[0], p[1])), 10);
   const armR = armGeom(ARMS.R, P.armR, P.armRBend, d);
   const armL = armGeom(ARMS.L, P.armL, P.armLBend, d);
   pen.silhouette(body, armR, armL, d);
-  const g = FACE.glint.map(p => d(p[0] - P.lookX * 10, p[1]));
+  const g = FACE.glint.map(p => d(p[0] * f - lx * 10, p[1]));
   const streak = [];
   for (let i = 0; i <= 16; i++) streak.push(bez(g[0], g[1], g[2], g[3], i / 16));
-  pen.glint(streak, d(FACE.dot[0], FACE.dot[1]), d(FACE.lowGlint[0], FACE.lowGlint[1]));
+  pen.glint(streak, d(FACE.dot[0] * f, FACE.dot[1]), d(FACE.lowGlint[0] * f, FACE.lowGlint[1]));
 
   // Face. Features shift with the gaze (parallax) and ride the body deformation.
-  const feat = (pt, px, py) => d(pt[0] + P.lookX * px, pt[1] + P.lookY * py);
+  const feat = (pt, px, py) => d(pt[0] + lx * px, pt[1] + P.lookY * py);
   const [fsx, fsy] = d.scaleAt(-605);
   for (const pt of [FACE.blushL, FACE.blushR]) {
     const [bx, by] = feat(pt, 36, 22);
@@ -651,8 +661,8 @@ function drawMibo(ctx, P, opts = {}) {
     const [ex, ey] = feat(pt, 42, 30);
     drawEye(pen, ex, ey, r, fsx, fsy, {
       open: P.open * (1 - clamp(wink, 0, 1)), happy: clamp(P.happy, 0, 1), topLid: clamp(P.topLid, 0, 1),
-      sparkle: P.sparkle, lookX: P.lookX,
-    });
+      sparkle: P.sparkle, lookX: lx,
+    }, f);
     if (opts.brows !== false) drawBrow(pen, ex, ey, r, fsx, fsy, inner, P.browRaise + P.browAsym * side * 0.6, P.browAngle);
   }
   const [mx, my] = feat(FACE.mouth, 52, 32);
@@ -737,6 +747,7 @@ class Puppet {
     this.lastPoke = 0;
     this.particles = [];
     this.watch = 0;
+    this.facing = 1;
     this.onCaption = null;
   }
 
@@ -843,7 +854,7 @@ class Puppet {
     // fidgets keep the screen alive between turns
     if (!this.busy && !this.held && !this.actions.length && this.t > this.fidgetAt && life > 0.05) {
       if (this.mood === 'neutral' || this.mood === 'happy') {
-        const pick = ['glance', 'sway', 'minihop', 'armswing', 'hum', 'blinkdouble'];
+        const pick = ['glance', 'sway', 'minihop', 'armswing', 'hum', 'blinkdouble', 'turn', 'turn'];
         this.act(pick[(Math.random() * pick.length) | 0]);
       }
       this.fidgetAt = this.t + (5 + Math.random() * 6) / Math.max(this.energy, 0.2);
@@ -866,6 +877,7 @@ class Puppet {
     }
     for (const k in direct) { this.s[k].v = direct[k]; this.s[k].vel = 0; }
     for (const k in this.s) this.P[k] = this.s[k].v + (add[k] || 0);
+    this.P.facing = this.facing;
     this.P.camY += this.P.y * 0.7;
 
     // blinks
@@ -998,6 +1010,23 @@ const ACTIONS = {
     return { set: { sy: u < 0.15 ? 0.84 : 1.04, spread: u < 0.15 ? 0.15 : 0, happy: 0.85 * env, blush: 1, mw: 230,
       mh: 110 * env, smile: 1, teethTop: 0.5, armL: -40, armR: 20 },
       add: { x: Math.sin(u * TAU * 7) * 12 * env, tilt: Math.sin(u * TAU * 5) * 4 * env } };
+  } },
+  // turn around: squash, hop, flip at the top behind a blink, land
+  turn: { dur: 0.85, fn(u, a, pp) {
+    const out = { set: {} };
+    if (u < 0.28) {
+      out.set = { sy: 0.86, spread: 0.12 };
+      out.add = { lookX: -0.8 * pp.facing * Math.min(1, u * 5) };  // eyes lead the turn
+    } else if (u < 0.66) {
+      const k = (u - 0.28) / 0.38;
+      out.direct = { y: -75 * Math.sin(Math.PI * k) };
+      out.set = { sy: 1.07, armL: 30, armR: 60 };
+      if (!a.fired.flip && k > 0.4) { a.fired.flip = true; pp.facing *= -1; pp.blinkT = 0.07; }
+    } else {
+      out.set = { sy: 0.9, spread: 0.1 };
+      if (!a.fired.land) { a.fired.land = true; pp.s.y.v = 0; pp.s.y.vel = 0; }
+    }
+    return out;
   } },
   // small fidgets
   glance: { dur: 2.2, fn(u) {
