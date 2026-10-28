@@ -95,7 +95,7 @@
 <div class="wrap">
   <header>
     <h1>Mibo Puppet Lab</h1>
-    <p>Style A/B test: one puppet, two looks, moving in sync. A is clean vector at 60 fps. B is watercolor and coloured pencil, drawn at a hand-animation frame rate with boiling lines. Captions stand in for the voice.</p>
+    <p>Mibo in the chosen hand-drawn look: watercolour and coloured pencil, held like hand animation (body 6 fps, mouth 24 fps, lines boil at 3 fps). The clean vector version stays available for comparison. Captions stand in for the voice.</p>
   </header>
 
   <div class="layout">
@@ -117,7 +117,7 @@
 
     <div class="deck">
       <section class="panel">
-        <h2>A/B test <small>blind, sides shuffled</small></h2>
+        <h2>Compare with clean (A/B) <small>blind, sides shuffled</small></h2>
         <p class="note">Start a round, play the mini lesson, then pick the side you or your child like more. Labels hide until you vote.</p>
         <div class="chips">
           <button type="button" id="blindStart">Start blind round</button>
@@ -134,7 +134,8 @@
       </section>
 
       <details class="panel" id="sketchPanel" open>
-        <summary>Hand-drawn look (B)</summary>
+        <summary>Hand-drawn look (B, chosen)</summary>
+        <p class="note">Defaults come from <code>Mibo.STYLE</code>: body 6 fps, mouth 24 fps, boil 3 fps. Tune here; tell Claude new values to make them the default.</p>
         <div class="sliders" id="sketchSliders"></div>
       </details>
 
@@ -209,16 +210,18 @@
   const ORIGINAL = JSON.parse(JSON.stringify(M.VISEMES));
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const settings = { energy: reduce ? 0.25 : 0.7, bounce: 0.55, mouthScale: 1.15, outline: 13, talkSpeed: 1, brows: true,
-    fps: 4, mouthFps: 6, boilFps: 3, boil: 1, bleed: 1, paper: 0.6, view: 'both', swap: false };
+    fps: M.STYLE.motionFps, mouthFps: M.STYLE.mouthFps, boilFps: M.STYLE.boilFps,
+    boil: M.STYLE.boil, bleed: M.STYLE.bleed, paper: M.STYLE.paper, view: 'b', swap: false };
+  const TIMING = ['fps', 'mouthFps', 'boilFps', 'view'];
 
   // ---- remembered tuning (per viewer, optional)
-  const KEY = 'mibo-style-ab-v2';
+  const KEY = 'mibo-style-ab-v3';
   try {
     let saved = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (!saved) {
-      // carry tuning over from v1, but take the new 4 fps default for hand-drawn motion
-      saved = JSON.parse(localStorage.getItem('mibo-style-ab-v1') || 'null');
-      if (saved && saved.settings) delete saved.settings.fps;
+      // carry tuning over from older versions, but take the chosen timings and the B view
+      saved = JSON.parse(localStorage.getItem('mibo-style-ab-v2') || localStorage.getItem('mibo-style-ab-v1') || 'null');
+      if (saved && saved.settings) for (const k of TIMING) delete saved.settings[k];
     }
     if (saved) { Object.assign(settings, saved.settings || {}); for (const k in saved.visemes || {}) Object.assign(M.VISEMES[k], saved.visemes[k]); }
   } catch (e) {}
@@ -359,7 +362,7 @@
   };
 
   // ---- hand-drawn sliders
-  const SK = [['fps', 'Motion fps', 2, 60, 1], ['mouthFps', 'Mouth fps', 2, 24, 1], ['boilFps', 'Boil fps', 1, 8, 0.5], ['boil', 'Line boil', 0, 2, 0.05], ['bleed', 'Colour offset', 0, 2, 0.05], ['paper', 'Paper grain', 0, 1, 0.05]];
+  const SK = [['fps', 'Motion fps', 2, 60, 1], ['mouthFps', 'Mouth fps', 2, 30, 1], ['boilFps', 'Boil fps', 1, 8, 0.5], ['boil', 'Line boil', 0, 2, 0.05], ['bleed', 'Colour offset', 0, 2, 0.05], ['paper', 'Paper grain', 0, 1, 0.05]];
   const skHost = document.getElementById('sketchSliders');
   for (const [k, label, a, b, st] of SK) slider(skHost, 's-' + k, label, a, b, st, settings[k], v => { settings[k] = v; persist(); labelStages(); });
 
