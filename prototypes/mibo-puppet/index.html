@@ -1,0 +1,350 @@
+<title>Mibo Puppet Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+  /* Layout: Mibo's stage is the hero (left / top); a control deck sits beside it (right / below) */
+  :root {
+    --bg: #f2f6f4; --surface: #ffffff; --ink: #17211d; --muted: #5a6a64; --line: #d9e3df;
+    --accent: #0e7c66; --accent-ink: #ffffff; --accent-soft: #dff3ec; --pop: #ff7a50; --pop-ink: #2a1208;
+    --stage-top: #e6faf1; --stage-floor: #fdf0e2; --stage-edge: #cfe5dc;
+    --display: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+    --body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10181b; --surface: #172226; --ink: #e8f0ed; --muted: #9db0a9; --line: #2a3a3f;
+      --accent: #4fd1b0; --accent-ink: #062019; --accent-soft: #1b3832; --pop: #ff8f6a; --pop-ink: #2a1208;
+      --stage-top: #183037; --stage-floor: #22312f; --stage-edge: #2a3d42;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10181b; --surface: #172226; --ink: #e8f0ed; --muted: #9db0a9; --line: #2a3a3f;
+    --accent: #4fd1b0; --accent-ink: #062019; --accent-soft: #1b3832; --pop: #ff8f6a; --pop-ink: #2a1208;
+    --stage-top: #183037; --stage-floor: #22312f; --stage-edge: #2a3d42;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+  .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+          padding-block: 16px 32px; max-width: 1240px; margin: 0 auto; display: grid; gap: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+  h1 { font: 700 26px/1.1 var(--display); margin: 0; letter-spacing: .01em; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+  .stage-card { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); display: grid; gap: 8px; min-width: 0; }
+  @media (max-width: 860px) { .stage-card { position: static; } }
+  .stage { position: relative; width: 100%; aspect-ratio: 1 / 1; max-height: min(74vh, 760px); border-radius: 22px; overflow: hidden;
+           border: 1px solid var(--stage-edge);
+           background: radial-gradient(120% 80% at 50% 10%, var(--stage-top) 0%, var(--stage-top) 45%, var(--stage-floor) 100%); touch-action: none; }
+  canvas { width: 100%; height: 100%; display: block; cursor: pointer; }
+  .caption { min-height: 2.6em; font: 600 20px/1.3 var(--display); text-align: center; padding: 0 8px; text-wrap: balance; }
+  .caption .w { color: var(--muted); transition: color .08s } .caption .w.on { color: var(--accent) }
+  .caption .note { color: var(--muted); font: 400 14px/1.4 var(--body); font-style: italic }
+  .caption .hint { color: var(--muted); font: 400 14px/1.4 var(--body); }
+
+  .deck { display: grid; gap: 12px; min-width: 0; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; min-width: 0; }
+  .panel h2 { margin: 0; font: 700 16px/1.2 var(--display); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .panel h2 small { font: 400 12px/1.2 var(--body); color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  button, .btn { font: 700 14px/1 var(--body); border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    border-radius: 999px; padding: 9px 13px; cursor: pointer; min-height: 38px; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button.primary { background: var(--pop); border-color: var(--pop); color: var(--pop-ink); }
+  button.mouth { font-family: var(--display); font-size: 16px; min-width: 52px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row input[type="text"] { flex: 1 1 160px; min-width: 0; font: inherit; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+  .sliders { display: grid; gap: 8px; }
+  .slider { display: grid; grid-template-columns: 104px minmax(0, 1fr) 44px; gap: 8px; align-items: center; font-size: 13px; }
+  .slider span:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  details > summary { cursor: pointer; font: 700 16px/1.2 var(--display); list-style: none; display: flex; justify-content: space-between; }
+  details > summary::after { content: "+"; color: var(--muted); } details[open] > summary::after { content: "–"; }
+  details[open] > summary { margin-bottom: 10px; }
+  select { font: inherit; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  textarea { width: 100%; min-height: 120px; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 8px; }
+  .status { font-size: 13px; color: var(--accent); min-height: 1.2em; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Mibo Puppet Lab</h1>
+    <p>Mibo drawn from shapes in code, not sprites. Try the moods and moves, play the mini lesson, and tune the teaching mouths. Voice comes later, so captions stand in for audio.</p>
+  </header>
+
+  <div class="layout">
+    <section class="stage-card" aria-label="Mibo">
+      <div class="stage"><canvas id="stage" aria-label="Animated Mibo. Tap Mibo to boop."></canvas></div>
+      <div class="caption" id="caption" aria-live="polite"></div>
+    </section>
+
+    <div class="deck">
+      <section class="panel">
+        <h2>Talk <small>captions stand in for the voice</small></h2>
+        <div class="chips">
+          <button class="primary" id="lesson" type="button">▶ Mini /s/ lesson</button>
+          <button type="button" data-line="hello">Hello</button>
+          <button type="button" data-line="watch">Watch me: sun</button>
+          <button type="button" data-line="th">Watch me: thumb</button>
+          <button type="button" data-line="retry">So close!</button>
+          <button type="button" id="stop">Stop</button>
+        </div>
+        <div class="row">
+          <input type="text" id="line" value="I love the sun. Sssss!" aria-label="Line for Mibo to say">
+          <button type="button" id="say">Say it</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Moods <small>held until changed</small></h2>
+        <div class="chips" id="moods"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Moves <small>one-shot</small></h2>
+        <div class="chips">
+          <button type="button" data-act="hop">Hop</button>
+          <button type="button" data-act="wave">Wave</button>
+          <button type="button" data-act="celebrate">Celebrate</button>
+          <button type="button" data-act="wiggle">Silly wiggle</button>
+          <button type="button" data-act="boop">Boop</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Teaching mouths <small>tap to hold, tap again to let go</small></h2>
+        <div class="chips" id="mouths"></div>
+        <label class="check"><input type="checkbox" id="zoom" checked> Zoom in, like a "watch my mouth" moment</label>
+      </section>
+
+      <details class="panel" id="tunePanel">
+        <summary>Feel</summary>
+        <div class="sliders" id="feel"></div>
+        <label class="check"><input type="checkbox" id="brows" checked> Eyebrows (new; the original art has none)</label>
+      </details>
+
+      <details class="panel" id="mouthPanel">
+        <summary>Mouth shape editor</summary>
+        <div class="row">
+          <label for="vsel" class="check">Shape</label>
+          <select id="vsel"></select>
+          <button type="button" id="vreset">Reset shape</button>
+        </div>
+        <div class="sliders" id="vsliders"></div>
+        <div class="row">
+          <button type="button" id="copy">Copy my tuning</button>
+          <span class="status" id="status" role="status"></span>
+        </div>
+        <textarea id="dump" hidden aria-label="Tuning JSON"></textarea>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script src="mibo-puppet.js"></script>
+<script>
+(() => {
+  const M = window.Mibo;
+  const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+  const mibo = new M.Puppet();
+  const ORIGINAL = JSON.parse(JSON.stringify(M.VISEMES));
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const settings = { energy: reduce ? 0.25 : 0.7, bounce: 0.55, mouthScale: 1.15, outline: 13, talkSpeed: 1, brows: true };
+
+  // ---- remembered tuning (per viewer, optional)
+  const KEY = 'mibo-puppet-lab-v1';
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved) { Object.assign(settings, saved.settings || {}); for (const k in saved.visemes || {}) Object.assign(M.VISEMES[k], saved.visemes[k]); }
+  } catch (e) {}
+  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify({ settings, visemes: M.VISEMES })); } catch (e) {} };
+  const applySettings = () => {
+    mibo.energy = settings.energy; mibo.bounce = settings.bounce; mibo.talkSpeed = settings.talkSpeed;
+  };
+  applySettings();
+
+  // ---- captions
+  const cap = document.getElementById('caption');
+  const HINT = 'Tap Mibo for a boop. Move your finger or mouse and Mibo watches it.';
+  let capText = null;
+  const showHint = () => { cap.innerHTML = ''; const n = document.createElement('span'); n.className = 'hint'; n.textContent = HINT; cap.appendChild(n); };
+  showHint();
+  mibo.onCaption = (text, idx) => {
+    if (!text) { if (capText !== null) showHint(); capText = null; return; }
+    if (idx < 0) { if (capText !== text) { cap.innerHTML = ''; const n = document.createElement('span'); n.className = 'note'; n.textContent = text; cap.appendChild(n); capText = text; } return; }
+    if (capText !== text) {
+      cap.innerHTML = '';
+      let pos = 0;
+      for (const part of text.split(/(\s+)/)) {
+        const s = document.createElement('span');
+        if (part.trim()) { s.className = 'w'; s.dataset.a = pos; s.dataset.b = pos + part.length; }
+        s.textContent = part; cap.appendChild(s); pos += part.length;
+      }
+      capText = text;
+    }
+    for (const w of cap.querySelectorAll('.w')) w.classList.toggle('on', idx >= +w.dataset.a && idx < +w.dataset.b);
+  };
+
+  // ---- scripts
+  const LINES = {
+    hello: [{ mood: 'happy', act: 'wave' }, { say: "Hi friend! I'm Mibo." }, { say: "Let's play with sounds!" }, { mood: 'neutral' }],
+    watch: [{ mood: 'neutral' }, { say: 'Watch my mouth.' }, { model: 's', hold: 1.8, caption: 'Sssss…' }, { say: 'sun!', watchAll: true }, { say: 'Now your turn.' }],
+    th: [{ mood: 'neutral' }, { say: 'Tongue peeks out.' }, { model: 'th', hold: 1.6, caption: 'Thhhh…' }, { say: 'thumb!', watchAll: true }],
+    retry: [{ mood: 'gentle' }, { say: "Ooh, so close!" }, { say: "Let's try again, nice and slow." }, { mood: 'neutral' }],
+  };
+  const LESSON = [
+    { mood: 'happy', act: 'wave' }, { say: "Hi friend! I'm Mibo." }, { say: "Let's play with the S sound!" },
+    { mood: 'neutral' }, { say: 'Watch my mouth.' }, { model: 's', hold: 1.8, caption: 'Sssss…' }, { say: 'sun!', watchAll: true },
+    { say: 'Now your turn.' },
+    { mood: 'listening', wait: 3, caption: '(the child says "tun")' },
+    { mood: 'thinking', wait: 1.3, caption: '(Mibo checks the attempt)' },
+    { mood: 'gentle' }, { say: 'Ooh, so close! Teeth together.' }, { model: 's', hold: 1.4, caption: 'Sssss…' }, { say: 'Try again!' },
+    { mood: 'listening', wait: 2.6, caption: '(the child says "sun")' },
+    { mood: 'surprised', wait: 0.5 }, { mood: 'happy', act: 'celebrate' }, { say: 'You did it! Super sun!' }, { wait: 1.2 },
+    { mood: 'neutral' },
+  ];
+  const run = script => { releaseMouth(); mibo.play(script, () => markMood()); };
+  document.getElementById('lesson').onclick = () => run(LESSON);
+  document.querySelectorAll('[data-line]').forEach(b => b.onclick = () => run(LINES[b.dataset.line]));
+  document.getElementById('stop').onclick = () => { mibo.stop(); mibo.setMood('neutral'); markMood(); };
+  const say = () => { const t = document.getElementById('line').value.trim(); if (t) run([{ say: t }]); };
+  document.getElementById('say').onclick = say;
+  document.getElementById('line').addEventListener('keydown', e => { if (e.key === 'Enter') say(); });
+
+  // ---- moods
+  const moodBox = document.getElementById('moods');
+  const MOOD_LABEL = { neutral: 'Neutral', happy: 'Happy', listening: 'Listening', thinking: 'Thinking', surprised: 'Surprised', gentle: 'Gentle (retry)', silly: 'Silly' };
+  for (const m of Object.keys(M.MOODS)) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = MOOD_LABEL[m] || m; b.dataset.mood = m;
+    b.onclick = () => { mibo.stop(); mibo.setMood(m); markMood(); };
+    moodBox.appendChild(b);
+  }
+  const markMood = () => moodBox.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mood === mibo.mood)));
+  markMood();
+  setInterval(markMood, 400);
+
+  document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => mibo.act(b.dataset.act));
+
+  // ---- teaching mouths
+  const MOUTH_LABEL = { s: 's', th: 'th', sh: 'sh', f: 'f', mbp: 'm b p', ah: 'ah', ee: 'ee', eh: 'eh', oh: 'oh', oo: 'oo', l: 'l' };
+  const mouthBox = document.getElementById('mouths'), zoom = document.getElementById('zoom');
+  for (const v of M.TEACHING) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'mouth'; b.dataset.v = v; b.textContent = MOUTH_LABEL[v];
+    b.setAttribute('aria-pressed', 'false');
+    b.onclick = () => {
+      if (mibo.held === v) return releaseMouth();
+      mibo.stop(); mibo.hold(v, zoom.checked); vsel.value = v; buildVSliders(); markMouth();
+    };
+    mouthBox.appendChild(b);
+  }
+  zoom.onchange = () => { if (mibo.held) mibo.hold(mibo.held, zoom.checked); };
+  function releaseMouth() { mibo.hold(null); markMouth(); }
+  function markMouth() { mouthBox.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === mibo.held))); }
+
+  // ---- feel sliders
+  const FEEL = [
+    ['energy', 'Liveliness', 0, 1, 0.05], ['bounce', 'Jelly bounce', 0, 1, 0.05], ['mouthScale', 'Mouth size', 0.6, 1.6, 0.05],
+    ['outline', 'Outline', 6, 22, 1], ['talkSpeed', 'Talk speed', 0.6, 1.5, 0.05],
+  ];
+  const slider = (host, id, label, min, max, step, value, onInput) => {
+    const row = document.createElement('div'); row.className = 'slider';
+    row.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}"><span></span>`;
+    const inp = row.querySelector('input'), out = row.querySelector('span');
+    const show = () => { out.textContent = (+inp.value).toFixed(step < 1 ? 2 : 0); };
+    inp.oninput = () => { show(); onInput(+inp.value); };
+    show(); host.appendChild(row);
+  };
+  const feel = document.getElementById('feel');
+  for (const [k, label, a, b, st] of FEEL) slider(feel, 'f-' + k, label, a, b, st, settings[k], v => { settings[k] = v; applySettings(); persist(); });
+  const brows = document.getElementById('brows'); brows.checked = settings.brows !== false;
+  brows.onchange = () => { settings.brows = brows.checked; persist(); };
+
+  // ---- mouth editor
+  const vsel = document.getElementById('vsel'), vsl = document.getElementById('vsliders');
+  for (const v of M.TEACHING) { const o = document.createElement('option'); o.value = v; o.textContent = MOUTH_LABEL[v]; vsel.appendChild(o); }
+  const VRANGE = { mw: [60, 340, 1], mh: [0, 260, 1], round: [0, 1, 0.01], smile: [-0.5, 1, 0.01], square: [0, 1, 0.01],
+    teethTop: [0, 1, 0.01], teethBot: [0, 1, 0.01], tongueUp: [0, 1, 0.01], tongueOut: [0, 1, 0.01], bite: [0, 1, 0.01] };
+  const VLABEL = { mw: 'Width', mh: 'Open', round: 'Round', smile: 'Smile', square: 'Boxy', teethTop: 'Top teeth', teethBot: 'Bottom teeth',
+    tongueUp: 'Tongue up', tongueOut: 'Tongue out', bite: 'Lip bite' };
+  function buildVSliders() {
+    vsl.innerHTML = '';
+    const v = vsel.value, shape = M.VISEMES[v];
+    for (const k in VRANGE) {
+      const [a, b, st] = VRANGE[k];
+      const cur = shape[k] !== undefined ? shape[k] : (k === 'mw' ? 150 : 0);
+      slider(vsl, 'v-' + k, VLABEL[k], a, b, st, cur, val => { shape[k] = val; persist(); });
+    }
+  }
+  vsel.onchange = () => { buildVSliders(); if (mibo.held) { mibo.hold(vsel.value, zoom.checked); markMouth(); } };
+  document.getElementById('vreset').onclick = () => {
+    const v = vsel.value; for (const k in M.VISEMES[v]) delete M.VISEMES[v][k];
+    Object.assign(M.VISEMES[v], ORIGINAL[v]); buildVSliders(); persist();
+  };
+  buildVSliders();
+  document.getElementById('mouthPanel').addEventListener('toggle', e => {
+    if (e.target.open && !mibo.held) { mibo.stop(); mibo.hold(vsel.value, zoom.checked); markMouth(); }
+  });
+  const status = document.getElementById('status'), dump = document.getElementById('dump');
+  document.getElementById('copy').onclick = () => {
+    const json = JSON.stringify({ settings, visemes: M.VISEMES }, null, 1);
+    const fallback = () => { dump.hidden = false; dump.value = json; dump.focus(); dump.select(); status.textContent = 'Select-all and copy from the box.'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(json).then(() => { status.textContent = 'Copied. Paste it to Claude.'; }, fallback);
+    } else fallback();
+  };
+
+  // ---- stage
+  let W = 0, H = 0, dpr = 1, cam = { s: 1, ox: 0, oy: 0 };
+  const resize = () => {
+    dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  };
+  new ResizeObserver(resize).observe(cv); resize();
+  const toWorld = e => {
+    const r = cv.getBoundingClientRect();
+    return [(e.clientX - r.left - cam.ox) / cam.s, (e.clientY - r.top - cam.oy) / cam.s];
+  };
+  cv.addEventListener('pointermove', e => mibo.point(...toWorld(e)));
+  cv.addEventListener('pointerdown', e => mibo.poke(...toWorld(e)));
+
+  const accent = () => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#0e7c66';
+  let accentCol = accent();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { accentCol = accent(); });
+  new MutationObserver(() => { accentCol = accent(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = (now - last) / 1000; last = now;
+    mibo.update(dt);
+    const P = mibo.P;
+    const s = Math.min(W / 1500, H / 1450) * P.camZoom;
+    cam = { s, ox: W / 2 - P.camX * s, oy: H / 2 - P.camY * s };
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * cam.ox, dpr * cam.oy);
+    M.drawMibo(ctx, P, { outline: settings.outline, brows: settings.brows, mouthScale: settings.mouthScale });
+    M.drawFx(ctx, P, mibo.t, accentCol);
+    M.drawParticles(ctx, mibo.particles);
+    if (mibo.watch > 0.02) {
+      // soft spotlight on the mouth during "watch me"
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${0.28 * mibo.watch})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__mibo = mibo;
+})();
+</script>
