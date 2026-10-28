@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mibo voice bake-off</title>
+<style>
+  :root { --bg:#fbf8f4; --fg:#1d1b19; --muted:#6b655e; --card:#fff; --line:#e6dfd6;
+          --pass:#1f7a4d; --flag:#b4541a; --accent:#2a9d78; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161513; --fg:#f1ede8; --muted:#a39c93; --card:#211f1c; --line:#38342f;
+            --pass:#5fd39a; --flag:#f0a35e; --accent:#5fd3ae; }
+  }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, sans-serif }
+  header { position:sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line);
+           display:flex; gap:16px; align-items:center; padding:8px 16px }
+  #mibo { width:132px; height:132px; flex:none; image-rendering:auto }
+  h1 { font-size:18px; margin:0 0 4px }
+  #now { color:var(--muted); font-size:13px }
+  main { padding:16px; overflow-x:auto }
+  table { border-collapse:collapse; min-width:720px }
+  th, td { border-bottom:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:left }
+  th { font-size:12px; color:var(--muted); font-weight:600; position:sticky; left:0 }
+  td.clip { min-width:170px; font-size:13px }
+  td.clip b { display:block; font-size:12px; color:var(--muted); font-weight:600 }
+  .cell { min-width:120px }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--fg);
+           border-radius:8px; padding:4px 10px; cursor:pointer }
+  button:hover { border-color:var(--accent) }
+  .pass { color:var(--pass) } .flag { color:var(--flag) }
+  .why { font-size:11px; color:var(--muted); max-width:160px }
+  .sum { font-size:12px; color:var(--muted) }
+</style>
+</head>
+<body>
+<header>
+  <img id="mibo" src="character/mibo-vowel-rest.png" alt="Mibo">
+  <div>
+    <h1>Mibo voice bake-off</h1>
+    <div id="now">Press a play button. Mibo's mouth is driven from the audio at 4 fps.</div>
+  </div>
+</header>
+<main><table id="grid"></table></main>
+<script>
+const REPORT = /*REPORT*/null;
+const img = document.getElementById('mibo'), now = document.getElementById('now');
+const POSE_FILE = p => p === 'rest' ? 'character/mibo-vowel-rest.png' : `character/mibo-vowel-${p}.png`;
+let audio = null, timer = null;
+
+function play(cand, clipId) {
+  const r = cand.results[clipId];
+  if (audio) audio.pause();
+  clearInterval(timer);
+  audio = new Audio(r.file);
+  now.textContent = `${cand.key} · ${clipId} · ${r.why}`;
+  audio.addEventListener('play', () => {
+    timer = setInterval(() => {
+      const t = audio.currentTime;
+      let pose = 'rest';
+      for (const step of r.track) { if (step.t <= t) pose = step.pose; else break; }
+      img.src = POSE_FILE(pose);
+    }, 50);
+  });
+  audio.addEventListener('ended', () => { clearInterval(timer); img.src = POSE_FILE('rest'); });
+  audio.play();
+}
+
+function build() {
+  const grid = document.getElementById('grid');
+  if (!REPORT) { grid.innerHTML = '<tr><td>No report embedded. Run tools/tts_eval.py.</td></tr>'; return; }
+  const head = document.createElement('tr');
+  head.innerHTML = '<th>clip</th>' + REPORT.candidates.map(c =>
+    `<th>${c.key}<div class="sum">hiss ${c.fricative_pass}/5 · ttfb ${c.median_ttfb_s ?? '–'}s · $${c.cost_usd ?? '?'}</div></th>`).join('');
+  grid.appendChild(head);
+  for (const clip of REPORT.clips) {
+    const tr = document.createElement('tr');
+    const label = document.createElement('td');
+    label.className = 'clip';
+    label.innerHTML = `<b>${clip.id}</b>${clip.text}`;
+    tr.appendChild(label);
+    for (const cand of REPORT.candidates) {
+      const td = document.createElement('td');
+      td.className = 'cell';
+      const r = cand.results[clip.id];
+      if (!r) { td.textContent = '–'; }
+      else if (r.error) { td.innerHTML = `<span class="flag">error</span><div class="why">${r.error.slice(0, 80)}</div>`; }
+      else {
+        const b = document.createElement('button');
+        b.textContent = '▶ play';
+        b.onclick = () => play(cand, clip.id);
+        td.appendChild(b);
+        const verdict = clip.kind === 'speech' ? '' :
+          `<span class="${r.pass ? 'pass' : 'flag'}">${r.pass ? 'pass' : 'flag'}</span> `;
+        const judged = r.judge && r.judge.ipa ? ` · heard [${r.judge.ipa}]` : '';
+        td.insertAdjacentHTML('beforeend', `<div class="why">${verdict}${r.why}${judged}</div>`);
+      }
+      tr.appendChild(td);
+    }
+    grid.appendChild(tr);
+  }
+}
+build();
+</script>
+</body>
+</html>

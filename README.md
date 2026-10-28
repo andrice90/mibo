@@ -24,7 +24,8 @@ mibo is an **educational practice companion**. It does not diagnose, it does not
 ## Privacy by design
 
 - **A child's voice never leaves the phone.** All listening and scoring happens on the device.
-- Only an anonymous text summary (age band, target sound, words attempted, how it went) may be sent, with a parent's permission, to personalise the next plan. No name, no audio, no recordings stored on a server.
+- Mibo replies live: the words the recogniser heard (text, never audio) and the lesson context go to an AI model that writes Mibo's next line, which is spoken with text-to-speech. No name, no audio, no recordings stored on a server.
+- An adult supervises every session. mibo says so before each one, and says that Mibo's replies are AI-generated.
 - No ads. No selling data. Purchases, settings, and consent live behind a parental gate.
 
 ## Status
@@ -37,9 +38,10 @@ mibo is being built solo for the **Meta Global AI Developer Hackathon (Oct 26 �
 - Character, voice & animation: [docs/03-character-voice-and-animation.md](docs/03-character-voice-and-animation.md)
 - Product & lesson design: [docs/04-product-and-lesson-design.md](docs/04-product-and-lesson-design.md)
 - Phased plan (hackathon → v1): [docs/05-phased-plan.md](docs/05-phased-plan.md)
+- Live voice pivot & TTS discovery: [docs/06-live-voice-and-tts.md](docs/06-live-voice-and-tts.md)
 
 ## Tech at a glance
 
-Expo / React Native (TypeScript) iOS app with an EAS development build · Rive character with viseme mouth shapes · licensed character text-to-speech, generated offline and bundled · on-device speech recognition and scoring (no audio off-device) · Meta Model API (Muse Spark) via a stateless Cloudflare Worker for parent-facing plan personalisation, Claude API as fallback · on-device storage with optional iCloud sync.
+Expo / React Native (TypeScript) iOS app with an EAS development build · Rive character with viseme mouth shapes · live text-to-speech for Mibo's replies (vendor picked by the bake-off in [docs/06](docs/06-live-voice-and-tts.md)), with pre-checked bundled clips for the teaching sounds · on-device speech recognition and scoring (no audio off-device) · Meta Model API (Muse Spark) via a stateless Cloudflare Worker for parent-facing plan personalisation, Claude API as fallback · on-device storage with optional iCloud sync.
 
 Built by a solo developer with Muse (Wonder + Spark). US English first.

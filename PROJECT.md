@@ -53,10 +53,12 @@ AI-assisted speech-practice companion for families. A playful animated character
 | 42 | Public repo | **Already created: `github.com/andrice90/mibo`, checked out as `main` in this workspace with `origin` set** (verified in-session: branch `main`, no commits yet). New-work-only history starts with the docs. |
 | 43 | Document-phase scope (accepted) | **Founder accepted:** `PROJECT.md` + `README.md` (project intro/purpose) + 5 docs under `docs/` (research/curriculum, tech stack/architecture, character/voice/animation, product/lesson design, hackathon phased plan + v1 roadmap). Out of scope this phase: app code, video production, later-stage build approvals. Docs phase done = docs in repo, decisions reflected, open items named as open. Founder instruction: commit the README, build out the docs, commit and push. |
 | 44 | Character animation pivot (supersedes #14/#35 for the hackathon) | **2D sprite poses from the founder's GIF character, not Rive/3D.** Mibo is extracted from `assets/mibo-wave.gif` (mint round blob), upscaled 3x, and rotated through set body poses + drawn vowel mouth shapes at a low 3–4 fps cartoon rate with holds. First set in `assets/character/` (idle/wave/celebrate + rest/ah/ee/eh/oh/oo), built by `tools/build_mibo_poses.py`. Rive viseme rig is parked as a post-hackathon option; the timing-track idea survives as pose-per-phoneme swaps. |
+| 45 | Live voice pivot (supersedes #11, #22, and #13/#23 for child-facing speech) | **Live LLM + live TTS for Mibo's replies, adult-supervised (founder, 2026-10-28).** Each turn, the recogniser's words (never audio, #10 holds) plus lesson context go to an LLM that writes Mibo's next short line, spoken by live TTS with Mibo's mouth driven from the new audio. Shown before each session: an adult supervises, Mibo is a practice companion and not a therapist, and replies are AI-generated. Guardrails: the library is still the source of truth (#4); the LLM returns schema-checked segments; teaching sounds (`/s/` hiss, `/θ/`, held vowels) are pre-generated, checked clips referenced by ID, never live-generated (#25 holds); bundled fallback lines when the network or validation fails; zero-data-retention provider routing. TTS vendor (#37) is decided by the bake-off in `docs/06`; the provisional pick is Gemini 3.8 Flash TTS via OpenRouter. |
 
 ## Non-negotiables
 - No diagnosis, no treatment guarantees, no disorder labels for a child.
-- No child audio leaves the device.
+- No child audio leaves the device (recognised text may, for live replies: #45).
+- Mibo's teaching sounds are pre-checked clips, never live-generated (#45).
 - No fail states shown to the child.
 - LLM selects from a human-researched library; it does not invent exercises.
 - All purchases, settings, cloud-consent, and external links behind a parental gate.
@@ -64,7 +66,8 @@ AI-assisted speech-practice companion for families. A playful animated character
 ## Open items (owned by the docs / spikes, not left vague)
 - On-device speech pick (Apple SpeechAnalyzer/`SFSpeechRecognizer` vs WhisperKit/CoreML vs phoneme spike) — `docs/02`, decided by spike exit criteria
 - Meta Model API terms (retention/training, hackathon credits) verified against decision 26; Claude fallback contract — `docs/02`
-- TTS vendor pick under free-tier + licensing constraint — `docs/03`, day 1–2 of hackathon plan
+- TTS vendor pick: bake-off harness ready (`tools/tts_eval.py`, `docs/06`), needs an OpenRouter inference key to run; licence terms of the winner still to check
+- Live-reply safety review: schema, word limits, blocklist, and the adult-supervision disclaimer wording (`docs/06` §6)
 - Exercise library v1 content (word lists, progressions) + citations — `docs/01` + `docs/04`
 - Beta family recruiting source (post-hackathon) — `docs/05`, still open
 - Generated-character asset rights verification — `docs/03`
