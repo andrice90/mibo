@@ -1,6 +1,6 @@
 # 06 — Live voice pivot & TTS discovery
 
-Status: Draft, 2026-10-28. Records the founder's pivot (PROJECT #45) and the TTS discovery that gates the MVP build. Pricing is from OpenRouter's live model list on 2026-10-28. First bake-off results are in §5 (run 2026-10-28). Warmth on the talk lines still needs the founder's ear.
+Status: Draft, 2026-10-28. Records the founder's pivot (PROJECT #45) and the TTS discovery that gates the MVP build. Pricing is from OpenRouter's live model list on 2026-10-28. First bake-off results are in §5 (run 2026-10-28). **Voice decided: Gemini 3.8 Flash TTS, voice Leda** (§5.2, PROJECT #37).
 
 ## 1. The pivot
 
@@ -114,11 +114,20 @@ What this shows:
 4. **Fast and cheap voices that hold /s/:** grok-voice eve (0.49 s, ~$0.008/min) and MAI Harper (0.59 s, ~$0.004/min). ElevenLabs Flash is the fastest but about 4× the price.
 5. **The LLM judge leans toward the intended text.** It wrote [sːːː] for Kokoro and Aura clips that are audibly "ess", because the prompt tells it what the text should be. Its "not clear" verdicts are useful, for example catching /θ/→[f], which the acoustic check cannot tell apart. Its "clear" verdicts are not reliable. It also cost about $6.50 for the 230 clips (~3¢ each), roughly 30× the TTS spend. Before trusting it, run it blind, without the intended text in the prompt.
 
-**Revised recommendation (pending the founder's listen):**
+**Recommendation before the listen** (superseded by §5.2): grok-voice eve or MAI Harper for talk on latency and price; Gemini Flash for offline model-sound clips.
 
-- **Talk segments:** `x-ai/grok-voice-tts-1.0` (eve) or `microsoft/mai-voice-2.1-flash` (Harper), whichever sounds warmer. Both are well inside the latency budget at under 1¢ per minute.
-- **Model-sound segments:** generate offline in the chosen voice, as phrase takes with several retries, and keep the ones that pass both the acoustic check and the ear. If the chosen voice cannot produce /θ/ even in context, use `elevenlabs/eleven-v3` for that clip only, or Azure/Polly IPA, or a recording.
-- Gemini Flash stays an option for offline model-sound clips: good /s/, cheap, and latency doesn't matter there.
+### 5.2 Decision: Gemini 3.8 Flash TTS, voice Leda
+
+The founder listened to every clip and picked **`google/gemini-3.8-flash-tts`, voice `Leda`**, as "by far the best" (2026-10-28). It is Mibo's one voice for both talk and model-sound segments, called with the `MIBO_STYLE` delivery note in `instructions`. Measured cost is about $0.012 per minute of speech.
+
+Two known gaps, and how the design covers them:
+
+1. **Latency.** Median time to first byte was 2.6 s, over the 1.5 s live budget. Mitigations, in order:
+   - Mibo shows the thinking pose and plays a bundled one-word reaction ("Ooh!", "Hmm!") the moment the child stops, so the wait reads as Mibo thinking.
+   - Synthesise the first short `say` segment on its own and start playing it while later segments are generated.
+   - Bundle the most common lines (greetings, "your turn", praise variants) as pre-generated Leda audio, so only truly reactive lines go live.
+   - Re-measure TTFB in the app with streaming playback. If it is still above about 3 s at the turn level, the fast voices from §5.1 remain the fallback for talk only.
+2. **Teaching sounds.** In single bare-text takes Leda held `/s/`, `/sh/`, `/f/` and the vowels, but said `/θ/` as [f] and `/z/` as a letter name. Model-sound clips are generated offline anyway, so: several takes per sound, phrase takes ("Thhhh... thumb!", where Leda produced a held [θːː]) trimmed to the hiss, and keep only clips that pass the acoustic check and the founder's ear. If `/θ/` still fails, record that one clip or use an IPA-capable engine for it.
 
 ## 6. Live turn loop (MVP shape)
 
