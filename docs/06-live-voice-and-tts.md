@@ -80,7 +80,7 @@ The same analysis runs in the browser/app on the PCM as it arrives (Web Audio `A
 For each clip it records time-to-first-byte (live latency), duration, real cost (from the generation record) and the acoustic verdict. The acoustic check flags *letter name instead of hiss*, *hiss too short* and *wrong place, e.g. /sh/ instead of /s/*. Vowels get a formant guess. An optional `--judge` pass asks an audio-input LLM for a narrow IPA transcription. It writes `eval/tts/out/index.html`, a listening page where every clip plays with **Mibo's mouth animated from that clip's audio**, so we judge sound and sync together.
 
 ```sh
-OPENROUTER_TTS_KEY=sk-or-v1-...  python3 tools/tts_eval.py            # all 14 candidates (~$0.30 total)
+OPENROUTER_LLM_API_KEY=sk-or-v1-... python3 tools/tts_eval.py            # all 14 candidates (~$0.30 total)
 python3 tools/tts_eval.py --models gemini-3.8,kokoro --judge           # narrower, with IPA judge
 python3 -m unittest tests.test_tts_eval                                # checker self-test
 ```
