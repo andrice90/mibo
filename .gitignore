@@ -1,0 +1,5 @@
+# TTS bake-off output (audio + report), regenerate with tools/tts_eval.py
+eval/tts/out*/
+__pycache__/
+.venv/
+.env
