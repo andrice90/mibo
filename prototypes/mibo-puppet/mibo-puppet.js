@@ -5,6 +5,9 @@
  *   2. Presets  VISEMES, MOODS     plain data: parameter targets
  *   3. Puppet   puppet.update(dt)  springs + idle life + one-shot moves + talking
  *
+ * The rig draws through a "pen": CleanPen is crisp vector, SketchPen is
+ * watercolour washes + coloured pencil with boiling lines (style A/B test).
+ *
  * Units are character space: ground at y = 0, top of the head at y = -990,
  * body about 1000 wide. Shapes and colours are traced from
  * assets/character/mibo-idle.png so the look stays the founder's Mibo.
@@ -96,7 +99,7 @@ const MOODS = {
     tilt: -8, blush: 0.9, browAsym: -0.6 },
 };
 
-// ------------------------------------------------------------------ rig
+// ------------------------------------------------------------------ geometry
 
 function bodyDeformer(P) {
   const sy = P.sy, sx = 1 + (1 - sy) * 0.9;
@@ -115,19 +118,60 @@ function bodyDeformer(P) {
   return fn;
 }
 
-function smoothClosed(pts) {
-  const p = new Path2D(), n = pts.length;
-  p.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 0; i < n; i++) {
-    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
-    p.bezierCurveTo(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6,
-      p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]);
+const bez = (a, b, c, d, t) => {
+  const u = 1 - t;
+  return [u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0],
+    u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1]];
+};
+function quadPts(a, c, b, n = 16) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push([u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]]);
   }
-  p.closePath();
+  return out;
+}
+function ellipsePts(cx, cy, rx, ry, n = 40) {
+  const out = [];
+  for (let i = 0; i < n; i++) { const t = i / n * TAU; out.push([cx + Math.cos(t) * rx, cy + Math.sin(t) * ry]); }
+  return out;
+}
+function arcPts(cx, cy, r, a0, a1, n = 16) {
+  const out = [];
+  for (let i = 0; i <= n; i++) { const t = lerp(a0, a1, i / n); out.push([cx + Math.cos(t) * r, cy + Math.sin(t) * r]); }
+  return out;
+}
+/** Closed Catmull-Rom spline through the anchors, sampled to points. */
+function splinePts(anchors, per = 10) {
+  const out = [], n = anchors.length;
+  for (let i = 0; i < n; i++) {
+    const p0 = anchors[(i - 1 + n) % n], p1 = anchors[i], p2 = anchors[(i + 1) % n], p3 = anchors[(i + 2) % n];
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    for (let k = 0; k < per; k++) out.push(bez(p1, c1, c2, p2, k / per));
+  }
+  return out;
+}
+function signedArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
+  return a / 2;
+}
+const orient = pts => signedArea(pts) < 0 ? pts.slice().reverse() : pts;
+function bbox(pts, pad = 40) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  return [x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad];
+}
+function toPath(pts, closed = true) {
+  const p = new Path2D();
+  pts.forEach((q, i) => (i ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1])));
+  if (closed) p.closePath();
   return p;
 }
 
-function armPaths(arm, angleDeg, bend, d) {
+/** Arm outline: one side root -> tip, round cap, other side back to the root. */
+function armGeom(arm, angleDeg, bend, d) {
   // The front arm slides out to the body edge as it lifts, so raised arms clear the body.
   const lift = arm.side < 0 ? clamp((angleDeg - 20) / 100, 0, 1) : 0;
   const rootPt = d(lerp(arm.root[0], -425, lift), lerp(arm.root[1], -450, lift));
@@ -137,10 +181,8 @@ function armPaths(arm, angleDeg, bend, d) {
   const N = 8, left = [], right = [], center = [];
   const curl = bend * arm.len * 0.35 * arm.side;  // positive bend curls the tip inward
   for (let i = 0; i <= N; i++) {
-    const u = i / N;
-    const off = curl * u * u;
-    center.push([rootPt[0] + dir[0] * arm.len * u + nrm[0] * off,
-      rootPt[1] + dir[1] * arm.len * u + nrm[1] * off]);
+    const u = i / N, off = curl * u * u;
+    center.push([rootPt[0] + dir[0] * arm.len * u + nrm[0] * off, rootPt[1] + dir[1] * arm.len * u + nrm[1] * off]);
   }
   for (let i = 0; i <= N; i++) {
     const a0 = center[Math.max(0, i - 1)], a1 = center[Math.min(N, i + 1)];
@@ -150,36 +192,355 @@ function armPaths(arm, angleDeg, bend, d) {
     left.push([center[i][0] - ty * hw, center[i][1] + tx * hw]);
     right.push([center[i][0] + ty * hw, center[i][1] - tx * hw]);
   }
-  const tip = center[N], last = left[N];
-  const capStart = Math.atan2(last[1] - tip[1], last[0] - tip[0]);
-  const hwTip = arm.w * 0.84 / 2;
-  const trace = (p, closed) => {
-    p.moveTo(left[0][0], left[0][1]);
-    for (let i = 1; i <= N; i++) p.lineTo(left[i][0], left[i][1]);
-    // left side -> forward -> right side is a decreasing angle on a y-down canvas
-    p.arc(tip[0], tip[1], hwTip, capStart, capStart - Math.PI, true);
-    for (let i = N; i >= 0; i--) p.lineTo(right[i][0], right[i][1]);
-    if (closed) p.closePath();
-  };
-  const closed = new Path2D(); trace(closed, true);
-  const open = new Path2D(); trace(open, false);
-  return { closed, open, tip };
+  const tip = center[N];
+  const capStart = Math.atan2(left[N][1] - tip[1], left[N][0] - tip[0]);
+  // left side -> forward -> right side is a decreasing angle on a y-down canvas
+  const cap = arcPts(tip[0], tip[1], arm.w * 0.84 / 2, capStart, capStart - Math.PI, 10).slice(1, -1);
+  return { pts: [...left, ...cap, ...right.slice().reverse()] };
 }
 
-function drawEye(ctx, cx, cy, r, sx, sy, E) {
-  const rx = r * sx, ryFull = r * sy, ry = ryFull * clamp(E.open, 0, 1.2);
+function mouthGeom(P, k, sx, sy) {
+  const w = P.mw * k * sx, h = Math.max(0, P.mh) * k * sy;
+  const round = clamp(P.round, 0, 1), sq = clamp(P.square, 0, 1);
+  const we = w * (1 - 0.5 * round);
+  const pexp = 2 + sq * 3;
+  const topR = 0.38 - 0.1 * round;
+  const lift = P.smile * we * 0.2;
+  const pts = [], N = 64;
+  for (let i = 0; i < N; i++) {
+    const t = i / N * TAU, c = Math.cos(t), s = Math.sin(t);
+    const ex = Math.sign(c) * Math.abs(c) ** (2 / pexp);
+    const ey = Math.sign(s) * Math.abs(s) ** (2 / pexp);
+    pts.push([ex * we / 2, (s < 0 ? ey * h * topR : ey * h * (1 - topR)) - lift * ex * ex]);
+  }
+  return { pts, we, h, topR, lift };
+}
+
+// ------------------------------------------------------------------ pens
+// A pen turns point lists into marks. CleanPen is the crisp vector look.
+// SketchPen wobbles every contour ("line boil": a new wobble per drawn frame),
+// paints shapes as layered translucent washes with pooled edges and paper
+// granulation, shades with pencil hatching, and draws outlines as grainy
+// coloured-pencil strokes. No canvas filters: iOS Safari lacks them, and these
+// same steps map onto Skia path effects and shaders.
+
+const SKETCH = {
+  body: '#79e6b6', bodyDeep: '#4fbf92', pencil: '#24332e', hatch: '#2c7a5c',
+  eye: '#28232f', eyeLow: '#544e61', glint: '#fffdf6', mouth: '#6a2a3d', tongue: '#f293ab',
+  teeth: '#fffdf6', blush: '238,112,146', shadow: '74,98,88', paper: '#fbf6ec',
+};
+
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const noise1 = x => { const i = Math.floor(x), f = x - i; return lerp(hash(i), hash(i + 1), f * f * (3 - 2 * f)) * 2 - 1; };
+
+/** Offset each point along its normal by smooth noise; closed shapes use periodic noise so there is no seam. */
+function wobble(pts, closed, amp, seed, freq = 0.011) {
+  const n = pts.length;
+  if (!amp || n < 3) return pts;
+  const cum = [0];
+  for (let i = 1; i < n; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = cum[n - 1] + (closed ? Math.hypot(pts[0][0] - pts[n - 1][0], pts[0][1] - pts[n - 1][1]) : 0);
+  const R = total * freq / TAU, s1 = seed * 7.31, s2 = seed * 5.13 + 50;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = pts[closed ? (i - 1 + n) % n : Math.max(0, i - 1)], b = pts[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+    let o;
+    if (closed) {
+      const th = cum[i] / total * TAU;
+      o = noise1(R * Math.cos(th) + s1) * 0.7 + noise1(R * Math.sin(th) + s2) * 0.7
+        + 0.35 * noise1(R * 3 * Math.cos(th) + s2 + 9);
+    } else {
+      o = noise1(cum[i] * freq + s1) + 0.4 * noise1(cum[i] * freq * 3 + s2);
+    }
+    out[i] = [pts[i][0] - ty * o * amp, pts[i][1] + tx * o * amp];
+  }
+  return out;
+}
+
+function makeCanvas(w, h) {
+  if (typeof document !== 'undefined') { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+  return new OffscreenCanvas(w, h);
+}
+const TEX = new WeakMap();
+function textures(ctx) {
+  if (TEX.has(ctx)) return TEX.get(ctx);
+  let seed = 1;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  // watercolour granulation: fine dark speckles plus soft pigment blotches
+  const g = makeCanvas(256, 256), gx = g.getContext('2d');
+  const gi = gx.createImageData(256, 256);
+  for (let i = 0; i < gi.data.length; i += 4) {
+    const v = rnd(), a = v > 0.8 ? (v - 0.8) * 1.2 : v < 0.04 ? 0.25 : 0;
+    gi.data[i] = 10; gi.data[i + 1] = 95; gi.data[i + 2] = 70; gi.data[i + 3] = a * 255;
+  }
+  gx.putImageData(gi, 0, 0);
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * 256, y = rnd() * 256, r = 18 + rnd() * 50;
+    for (const ox of [-256, 0, 256]) for (const oy of [-256, 0, 256]) {  // wrap so the tile has no seams
+      const rg = gx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+      rg.addColorStop(0, 'rgba(10,95,70,0.10)'); rg.addColorStop(1, 'rgba(10,95,70,0)');
+      gx.fillStyle = rg; gx.fillRect(0, 0, 256, 256);
+    }
+  }
+  // coloured pencil: pigment catching on paper tooth, so alpha breaks up
+  const p = makeCanvas(96, 96), px = p.getContext('2d');
+  const pi = px.createImageData(96, 96);
+  for (let y = 0; y < 96; y++) for (let x = 0; x < 96; x++) {
+    const tooth = 0.5 + 0.5 * Math.sin(x * 1.7 + Math.sin(y * 0.9) * 2) * Math.sin(y * 1.3 + x * 0.4);
+    const a = clamp(0.35 + 0.75 * rnd() * (0.55 + 0.45 * tooth), 0, 1);
+    const k = (y * 96 + x) * 4;
+    pi.data[k] = 36; pi.data[k + 1] = 51; pi.data[k + 2] = 46; pi.data[k + 3] = a * 255;
+  }
+  px.putImageData(pi, 0, 0);
+  const t = { grain: ctx.createPattern(g, 'repeat'), pencil: ctx.createPattern(p, 'repeat') };
+  TEX.set(ctx, t);
+  return t;
+}
+
+let PAPER = null;
+/** Paper background in screen space, for the hand-drawn stage. */
+function drawPaper(ctx, w, h, grain = 0.6) {
+  if (!PAPER) {
+    const c = makeCanvas(384, 384), x = c.getContext('2d');
+    x.fillStyle = SKETCH.paper; x.fillRect(0, 0, 384, 384);
+    const im = x.getImageData(0, 0, 384, 384);
+    let s = 7;
+    const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+    for (let i = 0; i < im.data.length; i += 4) {
+      const n = (rnd() - 0.5) * 18;
+      im.data[i] += n; im.data[i + 1] += n; im.data[i + 2] += n * 1.1;
+    }
+    x.putImageData(im, 0, 0);
+    x.strokeStyle = 'rgba(120,100,70,0.06)'; x.lineWidth = 1;
+    for (let i = 0; i < 160; i++) {
+      const a = rnd() * 384, b = rnd() * 384, l = 6 + rnd() * 22, t = rnd() * TAU;
+      x.beginPath(); x.moveTo(a, b); x.lineTo(a + Math.cos(t) * l, b + Math.sin(t) * l); x.stroke();
+    }
+    PAPER = c;
+  }
   ctx.save();
+  ctx.fillStyle = SKETCH.paper; ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = grain; ctx.fillStyle = ctx.createPattern(PAPER, 'repeat'); ctx.fillRect(0, 0, w, h);
+  ctx.globalAlpha = 1;
+  // a faint pale wash for the floor, like a background painted behind the character
+  const g = ctx.createLinearGradient(0, h * 0.55, 0, h);
+  g.addColorStop(0, 'rgba(240,200,160,0)'); g.addColorStop(1, 'rgba(240,200,160,0.28)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+}
+
+class CleanPen {
+  constructor(ctx, o) { this.ctx = ctx; this.LW = o.outline || 13; }
+  shape(pts, closed = true) { return toPath(pts, closed); }
+  fill(pts, role) {
+    const p = this.shape(pts, true);
+    this.ctx.fillStyle = { eye: COLORS.eye, eyeLow: COLORS.eyeLow, glint: '#fff', mouth: COLORS.mouth,
+      tongue: COLORS.tongue, teeth: COLORS.teeth, paper: '#fff' }[role] || role;
+    this.ctx.fill(p);
+    return p;
+  }
+  line(pts, closed, width, role = 'ink') {
+    const c = this.ctx;
+    c.strokeStyle = { ink: COLORS.outline, eye: COLORS.eye, divider: 'rgba(60,40,45,0.35)', tongueLine: 'rgba(150,40,70,0.5)' }[role] || role;
+    c.lineWidth = width; c.lineJoin = 'round'; c.lineCap = 'round';
+    c.stroke(this.shape(pts, closed));
+  }
+  silhouette(body, armR, armL, d) {
+    const c = this.ctx, LW = this.LW;
+    const B = toPath(body), R = toPath(armR.pts), L = toPath(armL.pts);
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    // Outline pass then fill pass: body and arms merge into one gooey silhouette.
+    c.strokeStyle = COLORS.outline; c.lineWidth = LW * 2;
+    c.stroke(R); c.stroke(B); c.stroke(L);
+    c.fillStyle = COLORS.body; c.fill(R); c.fill(B); c.fill(L);
+    // Each part is shaded under its own clip: a union clip leaves holes where
+    // the paths wind in opposite directions. Arms only where they leave the body.
+    const top = d(0, -990), bot = d(0, 0), sc = d(520, -260);
+    const g = c.createLinearGradient(top[0], top[1], bot[0], bot[1]);
+    g.addColorStop(0, 'rgba(255,255,255,0.18)'); g.addColorStop(0.45, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(18,140,95,0.24)');
+    const rg = c.createRadialGradient(sc[0], sc[1], 40, sc[0], sc[1], 560);
+    rg.addColorStop(0, 'rgba(18,140,95,0.2)'); rg.addColorStop(1, 'rgba(18,140,95,0)');
+    const outsideBody = new Path2D(); outsideBody.rect(-3000, -3000, 6000, 6000); outsideBody.addPath(B);
+    for (const part of [R, B, L]) {
+      c.save(); c.clip(part);
+      if (part !== B) c.clip(outsideBody, 'evenodd');
+      c.fillStyle = g; c.fillRect(-1400, -1600, 2800, 1800);
+      c.fillStyle = rg; c.fillRect(-1400, -1600, 2800, 1800);
+      c.restore();
+    }
+    // Front arm: its contour shows where it lies over the belly.
+    c.save(); c.clip(B);
+    c.strokeStyle = COLORS.outline; c.lineWidth = LW; c.stroke(toPath(armL.pts, false));
+    c.restore();
+  }
+  glint(streak, dot, low) {
+    const c = this.ctx, p = toPath(streak, false);
+    c.lineCap = 'round';
+    c.strokeStyle = 'rgba(255,255,255,0.75)'; c.lineWidth = 36; c.stroke(p);
+    c.strokeStyle = 'rgba(255,255,255,0.9)'; c.lineWidth = 14; c.stroke(p);
+    c.fillStyle = 'rgba(255,255,255,0.85)';
+    c.beginPath(); c.arc(dot[0], dot[1], 19, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    c.beginPath(); c.ellipse(low[0], low[1], 11, 18, 0.3, 0, TAU); c.fill();
+  }
+  blush(x, y, rx, ry, a) {
+    const c = this.ctx, rg = c.createRadialGradient(x, y, 5, x, y, rx * 0.92);
+    rg.addColorStop(0, `rgba(${COLORS.blush},${0.75 * a})`);
+    rg.addColorStop(0.6, `rgba(${COLORS.blush},${0.45 * a})`);
+    rg.addColorStop(1, `rgba(${COLORS.blush},0)`);
+    c.fillStyle = rg; c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, TAU); c.fill();
+  }
+  shadow(x, w, h, a) {
+    const c = this.ctx;
+    c.fillStyle = `rgba(${COLORS.shadow},${a})`;
+    c.beginPath(); c.ellipse(x, 12, w, h, 0, 0, TAU); c.fill();
+  }
+}
+
+class SketchPen extends CleanPen {
+  constructor(ctx, o) {
+    super(ctx, o);
+    this.seed = o.seed || 0;
+    this.amp = 5 * (o.boil === undefined ? 1 : o.boil);
+    this.bleed = o.bleed === undefined ? 1 : o.bleed;
+    this.tex = textures(ctx);
+    try { this.tex.pencil.setTransform(new DOMMatrix().translate(this.seed * 37, this.seed * 53)); } catch (e) {}
+  }
+  shape(pts, closed = true, ampMul = 1, variant = 0) {
+    return toPath(wobble(pts, closed, this.amp * ampMul, this.seed * 5 + variant), closed);
+  }
+  wash(path, box, color, strength = 1, edge = 12) {
+    const c = this.ctx;
+    c.save();
+    c.globalAlpha = 0.78 * strength; c.fillStyle = color; c.fill(path);
+    c.clip(path);
+    c.globalCompositeOperation = 'multiply';
+    c.globalAlpha = 0.5 * strength; c.strokeStyle = color; c.lineWidth = edge; c.stroke(path);  // pigment pools at the edge
+    c.globalAlpha = 0.3; c.fillStyle = this.tex.grain; c.fillRect(...box);
+    c.restore();
+  }
+  fill(pts, role) {
+    const c = this.ctx, col = SKETCH[role] || role;
+    const dark = role === 'eye' || role === 'mouth';
+    const main = this.shape(pts, true, role === 'glint' || role === 'teeth' ? 0.3 : 0.45);
+    if (role === 'glint' || role === 'teeth' || role === 'paper') {
+      c.fillStyle = SKETCH[role] || SKETCH.paper; c.fill(main); return main;
+    }
+    this.wash(main, bbox(pts), col, dark ? 1.15 : 1, dark ? 8 : 10);
+    c.save(); c.globalAlpha = 0.28; c.fillStyle = col;
+    c.fill(this.shape(pts, true, 0.9, 1)); c.restore();
+    return main;
+  }
+  line(pts, closed, width, role = 'ink') {
+    const c = this.ctx;
+    c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+    if (role === 'ink') {
+      c.strokeStyle = this.tex.pencil;
+      c.globalAlpha = 0.95; c.lineWidth = width * 0.62; c.stroke(this.shape(pts, closed, 0.55));
+      c.globalAlpha = 0.6; c.lineWidth = width * 0.34; c.stroke(this.shape(pts, closed, 1, 2));
+    } else {
+      c.strokeStyle = { eye: SKETCH.eye, divider: 'rgba(90,60,70,0.35)', tongueLine: 'rgba(160,50,80,0.45)' }[role] || role;
+      c.lineWidth = width; c.globalAlpha = 0.9; c.stroke(this.shape(pts, closed, 0.5));
+    }
+    c.restore();
+  }
+  silhouette(body, armR, armL, d) {
+    const c = this.ctx, LW = this.LW;
+    const parts = [armR.pts, body, armL.pts].map(orient);
+    const union = (amp, v) => { const p = new Path2D(); for (const q of parts) p.addPath(this.shape(q, true, amp, v)); return p; };
+    const all = parts.flat(), box = bbox(all, 80);
+    // Washes sit slightly off the pencil line, like colour laid in by hand.
+    c.save();
+    c.translate(this.bleed * 10, -this.bleed * 7);
+    const u = union(1.3, 0);
+    c.save(); c.globalAlpha = 0.9; c.fillStyle = SKETCH.body; c.fill(u); c.restore();
+    // Pigment pools only along the outer silhouette: each part's edge is hidden inside the others.
+    const outside = q => { const p = new Path2D(); p.rect(-4000, -4000, 8000, 8000); p.addPath(toPath(q)); return p; };
+    c.save(); c.clip(u); c.globalCompositeOperation = 'multiply'; c.globalAlpha = 0.45;
+    c.strokeStyle = SKETCH.body; c.lineWidth = 30;
+    parts.forEach((q, i) => {
+      c.save();
+      parts.forEach((o, j) => { if (j !== i) c.clip(outside(o), 'evenodd'); });
+      c.stroke(this.shape(q, true, 1.3, 0));
+      c.restore();
+    });
+    c.globalAlpha = 0.3; c.fillStyle = this.tex.grain; c.fillRect(...box);
+    c.restore();
+    c.save(); c.globalAlpha = 0.22; c.fillStyle = SKETCH.body; c.fill(union(2, 1)); c.restore();
+    c.save(); c.clip(u);
+    // wet-in-wet: a light top and a deeper pool low on the body
+    const hi = d(-190, -760), lo = d(220, -120);
+    let g = c.createRadialGradient(hi[0], hi[1], 20, hi[0], hi[1], 420);
+    g.addColorStop(0, 'rgba(255,255,250,0.55)'); g.addColorStop(1, 'rgba(255,255,250,0)');
+    c.fillStyle = g; c.fillRect(...box);
+    g = c.createRadialGradient(lo[0], lo[1], 40, lo[0], lo[1], 620);
+    g.addColorStop(0, 'rgba(60,170,125,0.42)'); g.addColorStop(1, 'rgba(60,170,125,0)');
+    c.fillStyle = g; c.fillRect(...box);
+    // pencil hatching for the shadow side
+    const sc = d(360, -170);
+    c.beginPath(); c.ellipse(sc[0], sc[1], 370, 260, -0.3, 0, TAU); c.clip();
+    c.strokeStyle = SKETCH.hatch; c.lineCap = 'round';
+    const dir = [0.5, -0.866], perp = [0.866, 0.5];
+    for (let k = -20; k <= 20; k++) {
+      if (hash(k * 3.1 + this.seed) < 0.18) continue;
+      const cx = sc[0] + perp[0] * k * 21, cy = sc[1] + perp[1] * k * 21;
+      const len = 260 + hash(k + 11.7 + this.seed) * 260;
+      const ln = [];
+      for (let i = 0; i <= 8; i++) { const t = (i / 8 - 0.5) * len; ln.push([cx + dir[0] * t, cy + dir[1] * t]); }
+      c.globalAlpha = 0.18 + 0.14 * hash(k * 1.7 + this.seed);
+      c.lineWidth = 3.4; c.stroke(this.shape(ln, false, 0.35, k));
+    }
+    c.restore();
+    c.restore();
+    // Pencil outline of the merged silhouette, hidden the same way.
+    c.save(); c.clip(outside(armR.pts), 'evenodd'); c.clip(outside(armL.pts), 'evenodd');
+    this.line(body, true, LW * 1.25); c.restore();
+    c.save(); c.clip(outside(body), 'evenodd'); this.line(armR.pts, true, LW * 1.25); c.restore();
+    this.line(armL.pts, false, LW * 1.15);
+  }
+  glint(streak, dot, low) {
+    const c = this.ctx;
+    c.save(); c.lineCap = 'round';
+    c.strokeStyle = 'rgba(255,253,246,0.7)'; c.lineWidth = 26; c.stroke(this.shape(streak, false, 0.8));
+    c.strokeStyle = 'rgba(255,253,246,0.95)'; c.lineWidth = 11; c.stroke(this.shape(streak, false, 1.2, 3));
+    c.fillStyle = 'rgba(255,253,246,0.9)'; c.fill(this.shape(ellipsePts(dot[0], dot[1], 18, 17, 16), true, 0.4));
+    c.restore();
+  }
+  blush(x, y, rx, ry, a) {
+    const c = this.ctx;
+    c.save();
+    for (let i = 0; i < 3; i++) {
+      c.globalAlpha = (0.2 + 0.06 * i) * a;
+      c.fillStyle = `rgb(${SKETCH.blush})`;
+      c.fill(this.shape(ellipsePts(x + (i - 1) * 6, y + (i % 2) * 4, rx * (0.95 - i * 0.18), ry * (0.95 - i * 0.15), 28), true, 1.6, 10 + i));
+    }
+    c.restore();
+  }
+  shadow(x, w, h, a) {
+    const c = this.ctx, pts = ellipsePts(x, 14, w, h, 48), p = this.shape(pts, true, 2.2);
+    c.save(); c.globalAlpha = a * 1.3; c.fillStyle = `rgb(${SKETCH.shadow})`; c.fill(p);
+    c.clip(p); c.globalCompositeOperation = 'multiply'; c.globalAlpha = 0.4; c.fillStyle = this.tex.grain; c.fillRect(...bbox(pts));
+    c.restore();
+  }
+}
+
+function makePen(ctx, opts) { return opts.style === 'sketch' ? new SketchPen(ctx, opts) : new CleanPen(ctx, opts); }
+
+// ------------------------------------------------------------------ rig
+
+function drawEye(pen, cx, cy, r, sx, sy, E) {
+  const ctx = pen.ctx;
+  const rx = r * sx, ryFull = r * sy, ry = ryFull * clamp(E.open, 0, 1.2);
   if (E.open < 0.14) {
     // closed: a little curve; upside-down when happy
     const bow = ryFull * 0.3 * (E.happy > 0.4 ? -1 : 1);
-    ctx.beginPath();
-    ctx.moveTo(cx - rx * 0.8, cy);
-    ctx.quadraticCurveTo(cx, cy + bow, cx + rx * 0.8, cy);
-    ctx.lineWidth = r * 0.17; ctx.strokeStyle = COLORS.eye; ctx.lineCap = 'round';
-    ctx.stroke();
-    ctx.restore();
+    pen.line(quadPts([cx - rx * 0.8, cy], [cx, cy + bow], [cx + rx * 0.8, cy]), false, r * 0.17, 'eye');
     return;
   }
+  ctx.save();
   if (E.happy > 0.01) {
     // cheeks push up: cut the eye with a wide ellipse from below -> smiling eye arcs
     const hp = new Path2D();
@@ -188,209 +549,116 @@ function drawEye(ctx, cx, cy, r, sx, sy, E) {
     ctx.clip(hp, 'evenodd');
   }
   if (E.topLid > 0.01) {
-    const yl = cy - ry + 2 * ry * E.topLid * 0.9;
     const lp = new Path2D();
-    lp.rect(cx - rx * 2, yl, rx * 4, ry * 4);
+    lp.rect(cx - rx * 2, cy - ry + 2 * ry * E.topLid * 0.9, rx * 4, ry * 4);
     ctx.clip(lp);
   }
-  const eye = new Path2D();
-  eye.ellipse(cx, cy, rx, ry, 0, 0, TAU);
-  ctx.fillStyle = COLORS.eye; ctx.fill(eye);
+  const eye = pen.fill(ellipsePts(cx, cy, rx, ry, 44), 'eye');
   ctx.clip(eye);
-  ctx.fillStyle = COLORS.eyeLow;
-  ctx.beginPath(); ctx.ellipse(cx, cy + ry * 0.45, rx * 0.7, ry * 0.42, 0, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#fff';
+  pen.fill(ellipsePts(cx, cy + ry * 0.45, rx * 0.7, ry * 0.42, 36), 'eyeLow');
   const gx = -E.lookX * rx * 0.06;
-  ctx.beginPath(); ctx.arc(cx - rx * 0.3 + gx, cy - ry * 0.3, rx * 0.24 * E.sparkle, 0, TAU); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + rx * 0.34 + gx, cy - ry * 0.34, rx * 0.11 * E.sparkle, 0, TAU); ctx.fill();
+  pen.fill(ellipsePts(cx - rx * 0.3 + gx, cy - ry * 0.3, rx * 0.24 * E.sparkle, rx * 0.24 * E.sparkle, 24), 'glint');
+  pen.fill(ellipsePts(cx + rx * 0.34 + gx, cy - ry * 0.34, rx * 0.11 * E.sparkle, rx * 0.11 * E.sparkle, 16), 'glint');
   ctx.restore();
 }
 
-function drawBrow(ctx, ex, ey, r, sx, sy, inner, raise, angle, LW) {
+function drawBrow(pen, ex, ey, r, sx, sy, inner, raise, angle) {
   // inner = +1 when the face centre is to the right of this eye
   const by = ey - r * 1.5 * sy - raise * 62 * sy;
   const half = 58 * sx, tiltY = angle * 30 * sy;
-  ctx.beginPath();
-  ctx.moveTo(ex - inner * half, by + tiltY * 0.6);
-  ctx.quadraticCurveTo(ex, by - 16 * sy - tiltY * 0.2, ex + inner * half, by - tiltY);
-  ctx.lineWidth = LW * 1.35; ctx.strokeStyle = COLORS.outline; ctx.lineCap = 'round';
-  ctx.stroke();
+  pen.line(quadPts([ex - inner * half, by + tiltY * 0.6], [ex, by - 16 * sy - tiltY * 0.2], [ex + inner * half, by - tiltY], 12),
+    false, pen.LW * 1.35);
 }
 
-function mouthOutline(P, k, sx, sy) {
-  const w = P.mw * k * sx, h = Math.max(0, P.mh) * k * sy;
-  const round = clamp(P.round, 0, 1), sq = clamp(P.square, 0, 1);
-  const we = w * (1 - 0.5 * round);
-  const pexp = 2 + sq * 3;
-  const topR = 0.38 - 0.1 * round;
-  const lift = P.smile * we * 0.2;
-  const path = new Path2D(), N = 64;
-  for (let i = 0; i <= N; i++) {
-    const t = i / N * TAU, c = Math.cos(t), s = Math.sin(t);
-    const ex = Math.sign(c) * Math.abs(c) ** (2 / pexp);
-    const ey = Math.sign(s) * Math.abs(s) ** (2 / pexp);
-    const x = ex * we / 2;
-    const y = (s < 0 ? ey * h * topR : ey * h * (1 - topR)) - lift * ex * ex;
-    if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
-  }
-  path.closePath();
-  return { path, we, h, topR, lift };
-}
-
-function drawMouth(ctx, cx, cy, sx, sy, P, LW) {
-  const k = P.mouthBoost;
-  const M = mouthOutline(P, k, sx, sy);
+function drawMouth(pen, cx, cy, sx, sy, P) {
+  const ctx = pen.ctx, LW = pen.LW, k = P.mouthBoost;
+  const M = mouthGeom(P, k, sx, sy);
   const { we, h, topR, lift } = M;
   const yTop = -h * topR, yBot = h * (1 - topR);
+  const curve = y => quadPts([-we / 2, y - lift], [0, y + lift], [we / 2, y - lift], 12);
   const band = (y, dir) => {
     // a teeth band whose free edge follows the smile curve
-    const p = new Path2D(), far = y + dir * 400;
-    p.moveTo(-we, far);
-    p.lineTo(-we, y - lift); p.lineTo(-we / 2, y - lift);
-    p.quadraticCurveTo(0, y + lift, we / 2, y - lift);
-    p.lineTo(we, y - lift); p.lineTo(we, far);
-    p.closePath();
-    return p;
+    const far = y + dir * 400;
+    return [[-we, far], [-we, y - lift], ...curve(y), [we, y - lift], [we, far]];
   };
   ctx.save();
   ctx.translate(cx + P.mx * k * sx, cy);
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   const ttop = yTop + clamp(P.teethTop, 0, 1) * h * 0.5;
   if (h > 1) {
     ctx.save();
-    ctx.fillStyle = COLORS.mouth; ctx.fill(M.path);
-    ctx.clip(M.path);
-    if (h > 24) {
-      ctx.fillStyle = COLORS.tongue;
-      ctx.beginPath();
-      ctx.ellipse(0, yBot - h * 0.16 - clamp(P.tongueUp, 0, 1) * h * 0.42, we * 0.3, h * 0.33, 0, 0, TAU);
-      ctx.fill();
-    }
-    ctx.fillStyle = COLORS.teeth;
-    if (P.teethTop > 0.01) ctx.fill(band(ttop, -1));
-    if (P.teethBot > 0.01) ctx.fill(band(yBot - clamp(P.teethBot, 0, 1) * h * 0.5, 1));
-    if (P.teethTop > 0.8 && P.teethBot > 0.8 && h > 8) {
-      ctx.strokeStyle = 'rgba(60,40,45,0.35)'; ctx.lineWidth = LW * 0.35;
-      ctx.beginPath(); ctx.moveTo(-we / 2, ttop - lift); ctx.quadraticCurveTo(0, ttop + lift, we / 2, ttop - lift); ctx.stroke();
-    }
+    const inside = pen.fill(M.pts, 'mouth');
+    ctx.clip(inside);
+    if (h > 24) pen.fill(ellipsePts(0, yBot - h * 0.16 - clamp(P.tongueUp, 0, 1) * h * 0.42, we * 0.3, h * 0.33, 32), 'tongue');
+    if (P.teethTop > 0.01) pen.fill(band(ttop, -1), 'teeth');
+    if (P.teethBot > 0.01) pen.fill(band(yBot - clamp(P.teethBot, 0, 1) * h * 0.5, 1), 'teeth');
+    if (P.teethTop > 0.8 && P.teethBot > 0.8 && h > 8) pen.line(curve(ttop), false, LW * 0.35, 'divider');
     ctx.restore();
   }
-  ctx.strokeStyle = COLORS.outline; ctx.lineWidth = LW * 0.95;
-  ctx.stroke(M.path);
+  pen.line(M.pts, true, LW * 0.95);
   if (P.tongueOut > 0.02 && h > 6) {
     // /th/: tongue tip slides out from under the top teeth, over the lower lip
     ctx.save();
     const cl = new Path2D(); cl.rect(-we, ttop + 2, we * 2, 600); ctx.clip(cl);
     const ry = (24 + 22 * P.tongueOut) * k * sy;
-    const tp = new Path2D(); tp.ellipse(0, yBot + ry * 0.15, we * 0.21, ry, 0, 0, TAU);
-    ctx.fillStyle = COLORS.tongue; ctx.fill(tp);
-    ctx.lineWidth = LW * 0.7; ctx.stroke(tp);
-    ctx.strokeStyle = 'rgba(150,40,70,0.5)'; ctx.lineWidth = LW * 0.35;
-    ctx.beginPath(); ctx.moveTo(0, yBot - ry * 0.3); ctx.lineTo(0, yBot + ry * 0.5); ctx.stroke();
+    const tip = ellipsePts(0, yBot + ry * 0.15, we * 0.21, ry, 32);
+    pen.fill(tip, 'tongue');
+    pen.line(tip, true, LW * 0.7);
+    pen.line([[0, yBot - ry * 0.3], [0, yBot + ry * 0.5]], false, LW * 0.35, 'tongueLine');
     ctx.restore();
   }
   if (P.bite > 0.02) {
     // /f/: top teeth rest on the lower lip
     const bw = we * 0.34, y0 = yTop - 4, y1 = yBot + 16 * P.bite * k * sy;
-    const tp = new Path2D();
-    tp.moveTo(-bw, y0); tp.lineTo(-bw, y1 - 8); tp.quadraticCurveTo(-bw, y1, -bw + 8, y1);
-    tp.lineTo(bw - 8, y1); tp.quadraticCurveTo(bw, y1, bw, y1 - 8); tp.lineTo(bw, y0);
-    ctx.fillStyle = COLORS.teeth; ctx.fill(tp);
-    ctx.strokeStyle = COLORS.outline; ctx.lineWidth = LW * 0.6; ctx.stroke(tp);
+    const t = [[-bw, y0], [-bw, y1 - 8], ...quadPts([-bw, y1 - 8], [-bw, y1], [-bw + 8, y1], 4),
+      [bw - 8, y1], ...quadPts([bw - 8, y1], [bw, y1], [bw, y1 - 8], 4), [bw, y0]];
+    pen.fill(t, 'teeth');
+    pen.line(t, true, LW * 0.6);
   }
   ctx.restore();
 }
 
-function drawShadow(ctx, P) {
-  const lift = clamp(-P.y / 500, 0, 1);
-  const w = 470 * (1 + (1 - P.sy) * 0.9) * (1 + P.spread * 0.6) * (1 - lift * 0.45);
-  ctx.fillStyle = `rgba(${COLORS.shadow},${0.18 * (1 - lift * 0.6)})`;
-  ctx.beginPath(); ctx.ellipse(P.x, 12, w, 42 * (1 - lift * 0.4), 0, 0, TAU); ctx.fill();
-}
-
-/** Draw Mibo for parameter set P in character space (ground at y = 0). */
+/**
+ * Draw Mibo for parameter set P in character space (ground at y = 0).
+ * opts: style 'clean' | 'sketch', outline, brows, mouthScale; sketch also
+ * takes seed (boil frame), boil (wobble amount) and bleed (wash offset).
+ */
 function drawMibo(ctx, P, opts = {}) {
-  const LW = opts.outline || 13;
-  drawShadow(ctx, P);
+  const pen = makePen(ctx, opts);
+  const lift = clamp(-P.y / 500, 0, 1);
+  pen.shadow(P.x, 470 * (1 + (1 - P.sy) * 0.9) * (1 + P.spread * 0.6) * (1 - lift * 0.45), 42 * (1 - lift * 0.4), 0.18 * (1 - lift * 0.6));
   ctx.save();
   ctx.translate(P.x, P.y);
   ctx.translate(0, -470); ctx.rotate(P.tilt * Math.PI / 180); ctx.translate(0, 470);
   const d = bodyDeformer(P);
-  const body = smoothClosed(BODY.map(p => d(p[0], p[1])));
-  const armR = armPaths(ARMS.R, P.armR, P.armRBend, d);
-  const armL = armPaths(ARMS.L, P.armL, P.armLBend, d);
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-
-  // Outline pass then fill pass: body and arms merge into one gooey silhouette.
-  ctx.strokeStyle = COLORS.outline; ctx.lineWidth = LW * 2;
-  ctx.stroke(armR.closed); ctx.stroke(body); ctx.stroke(armL.closed);
-  ctx.fillStyle = COLORS.body;
-  ctx.fill(armR.closed); ctx.fill(body); ctx.fill(armL.closed);
-
-  // Soft shading and the glossy highlight, all riding the deformation.
-  // Each part is shaded under its own clip: a union clip would leave holes
-  // where the arm and body paths wind in opposite directions.
-  const top = d(0, -990), bot = d(0, 0), sc = d(520, -260);
-  const g = ctx.createLinearGradient(top[0], top[1], bot[0], bot[1]);
-  g.addColorStop(0, 'rgba(255,255,255,0.18)'); g.addColorStop(0.45, 'rgba(255,255,255,0)');
-  g.addColorStop(1, 'rgba(18,140,95,0.24)');
-  const rg = ctx.createRadialGradient(sc[0], sc[1], 40, sc[0], sc[1], 560);
-  rg.addColorStop(0, 'rgba(18,140,95,0.2)'); rg.addColorStop(1, 'rgba(18,140,95,0)');
-  const outsideBody = new Path2D(); outsideBody.rect(-3000, -3000, 6000, 6000); outsideBody.addPath(body);
-  for (const part of [armR.closed, body, armL.closed]) {
-    ctx.save(); ctx.clip(part);
-    if (part !== body) ctx.clip(outsideBody, 'evenodd');  // arms only where they leave the body
-    ctx.fillStyle = g; ctx.fillRect(-1400, -1600, 2800, 1800);
-    ctx.fillStyle = rg; ctx.fillRect(-1400, -1600, 2800, 1800);
-    ctx.restore();
-  }
-
-  const glint = FACE.glint.map(p => d(p[0] - P.lookX * 10, p[1]));
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 36;
-  ctx.beginPath(); ctx.moveTo(glint[0][0], glint[0][1]);
-  ctx.bezierCurveTo(glint[1][0], glint[1][1], glint[2][0], glint[2][1], glint[3][0], glint[3][1]);
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 14; ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  const dot = d(FACE.dot[0], FACE.dot[1]);
-  ctx.beginPath(); ctx.arc(dot[0], dot[1], 19, 0, TAU); ctx.fill();
-  const lg = d(FACE.lowGlint[0], FACE.lowGlint[1]);
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.beginPath(); ctx.ellipse(lg[0], lg[1], 11, 18, 0.3, 0, TAU); ctx.fill();
-
-  // Front arm: its contour shows where it lies over the belly.
-  ctx.save(); ctx.clip(body);
-  ctx.strokeStyle = COLORS.outline; ctx.lineWidth = LW; ctx.stroke(armL.open);
-  ctx.restore();
+  const body = splinePts(BODY.map(p => d(p[0], p[1])), 10);
+  const armR = armGeom(ARMS.R, P.armR, P.armRBend, d);
+  const armL = armGeom(ARMS.L, P.armL, P.armLBend, d);
+  pen.silhouette(body, armR, armL, d);
+  const g = FACE.glint.map(p => d(p[0] - P.lookX * 10, p[1]));
+  const streak = [];
+  for (let i = 0; i <= 16; i++) streak.push(bez(g[0], g[1], g[2], g[3], i / 16));
+  pen.glint(streak, d(FACE.dot[0], FACE.dot[1]), d(FACE.lowGlint[0], FACE.lowGlint[1]));
 
   // Face. Features shift with the gaze (parallax) and ride the body deformation.
   const feat = (pt, px, py) => d(pt[0] + P.lookX * px, pt[1] + P.lookY * py);
   const [fsx, fsy] = d.scaleAt(-605);
-  for (const [pt, side] of [[FACE.blushL, -1], [FACE.blushR, 1]]) {
+  for (const pt of [FACE.blushL, FACE.blushR]) {
     const [bx, by] = feat(pt, 36, 22);
-    const a = clamp(P.blush, 0, 1);
-    const rg2 = ctx.createRadialGradient(bx, by - P.happy * 10, 5, bx, by - P.happy * 10, 72 * fsx);
-    rg2.addColorStop(0, `rgba(${COLORS.blush},${0.75 * a})`);
-    rg2.addColorStop(0.6, `rgba(${COLORS.blush},${0.45 * a})`);
-    rg2.addColorStop(1, `rgba(${COLORS.blush},0)`);
-    ctx.fillStyle = rg2;
-    ctx.beginPath(); ctx.ellipse(bx, by - P.happy * 10, 78 * fsx, 42 * fsy, 0, 0, TAU); ctx.fill();
+    pen.blush(bx, by - P.happy * 10, 78 * fsx, 42 * fsy, clamp(P.blush, 0, 1));
   }
   const r = FACE.eyeR0 * P.eyeScale;
-  const eyes = [[FACE.eyeL, P.winkL, 1, -1], [FACE.eyeR, P.winkR, -1, 1]];
-  for (const [pt, wink, inner, side] of eyes) {
+  for (const [pt, wink, inner, side] of [[FACE.eyeL, P.winkL, 1, -1], [FACE.eyeR, P.winkR, -1, 1]]) {
     const [ex, ey] = feat(pt, 42, 30);
-    drawEye(ctx, ex, ey, r, fsx, fsy, {
+    drawEye(pen, ex, ey, r, fsx, fsy, {
       open: P.open * (1 - clamp(wink, 0, 1)), happy: clamp(P.happy, 0, 1), topLid: clamp(P.topLid, 0, 1),
       sparkle: P.sparkle, lookX: P.lookX,
     });
-    if (opts.brows !== false) {
-      drawBrow(ctx, ex, ey, r, fsx, fsy, inner, P.browRaise + P.browAsym * side * 0.6, P.browAngle, LW);
-    }
+    if (opts.brows !== false) drawBrow(pen, ex, ey, r, fsx, fsy, inner, P.browRaise + P.browAsym * side * 0.6, P.browAngle);
   }
   const [mx, my] = feat(FACE.mouth, 52, 32);
   const [msx, msy] = d.scaleAt(-450);
-  drawMouth(ctx, mx, my, msx * (opts.mouthScale || 1), msy * (opts.mouthScale || 1), P, LW);
+  const ms = opts.mouthScale || 1;
+  drawMouth(pen, mx, my, msx * ms, msy * ms, P);
   ctx.restore();
 }
 
@@ -752,59 +1020,59 @@ const ACTIONS = {
   blinkdouble: { dur: 0.5, fn(u, a, pp) { if (!a.fired.b) { a.fired.b = true; pp.blinkAt = pp.t; } return {}; } },
 };
 
-function drawParticles(ctx, parts) {
+function drawParticles(ctx, parts, opts = {}) {
+  const sketch = opts.style === 'sketch';
+  const pen = sketch ? makePen(ctx, opts) : null;
   for (const p of parts) {
     const a = clamp(p.ttl / Math.min(p.max, 0.6), 0, 1);
-    ctx.save(); ctx.globalAlpha = a; ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.save(); ctx.globalAlpha = a * (sketch ? 0.8 : 1); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    if (sketch) ctx.globalCompositeOperation = 'multiply';
     ctx.fillStyle = p.color;
-    if (p.kind === 'confetti') ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+    let pts;
+    if (p.kind === 'confetti') pts = [[-p.w / 2, -p.h / 2], [p.w / 2, -p.h / 2], [p.w / 2, p.h / 2], [-p.w / 2, p.h / 2]];
     else if (p.kind === 'star') {
-      ctx.beginPath();
+      pts = [];
       for (let i = 0; i < 10; i++) {
         const r = i % 2 ? p.size * 0.45 : p.size, t = i / 10 * TAU - Math.PI / 2;
-        ctx.lineTo(Math.cos(t) * r, Math.sin(t) * r);
+        pts.push([Math.cos(t) * r, Math.sin(t) * r]);
       }
-      ctx.closePath(); ctx.fill();
     } else {
       ctx.rotate(-p.rot); const s = p.size;
-      ctx.beginPath(); ctx.moveTo(0, s * 0.35);
-      ctx.bezierCurveTo(-s, -s * 0.3, -s * 0.4, -s, 0, -s * 0.45);
-      ctx.bezierCurveTo(s * 0.4, -s, s, -s * 0.3, 0, s * 0.35);
-      ctx.fill();
+      pts = [...[0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => bez([0, s * 0.35], [-s, -s * 0.3], [-s * 0.4, -s], [0, -s * 0.45], i / 8)),
+        ...[1, 2, 3, 4, 5, 6, 7].map(i => bez([0, -s * 0.45], [s * 0.4, -s], [s, -s * 0.3], [0, s * 0.35], i / 8))];
     }
+    ctx.fill(sketch ? toPath(wobble(pts, true, 2.5, (opts.seed || 0) + p.max * 10)) : toPath(pts));
     ctx.restore();
   }
 }
 
 /** Thought dots and "I'm listening" waves, faded in by P.think / P.listen. */
-function drawFx(ctx, P, t, accent) {
+function drawFx(ctx, P, t, accent, opts = {}) {
+  const pen = makePen(ctx, opts);
   const th = clamp(P.think, 0, 1), li = clamp(P.listen, 0, 1);
   if (th > 0.02) {
-    const dots = [[300, -1050, 22], [385, -1125, 30], [490, -1215, 40]];
-    dots.forEach(([x, y, r], i) => {
+    [[300, -1050, 22], [385, -1125, 30], [490, -1215, 40]].forEach(([x, y, r], i) => {
       const pulse = 0.5 + 0.5 * Math.sin(t * 5 - i * 0.9);
       ctx.globalAlpha = th * (0.35 + 0.65 * pulse);
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = COLORS.outline; ctx.lineWidth = 8;
-      ctx.beginPath(); ctx.arc(P.x + x, P.y + y - pulse * 8, r * (0.9 + pulse * 0.15), 0, TAU); ctx.fill(); ctx.stroke();
+      const pts = ellipsePts(P.x + x, P.y + y - pulse * 8, r * (0.9 + pulse * 0.15), r * (0.9 + pulse * 0.15), 24);
+      pen.fill(pts, 'paper');
+      pen.line(pts, true, 8);
     });
     ctx.globalAlpha = 1;
   }
   if (li > 0.02) {
-    ctx.lineCap = 'round'; ctx.strokeStyle = accent; ctx.lineWidth = 14;
     for (const side of [-1, 1]) {
       for (let i = 0; i < 3; i++) {
         const ph = (t * 0.9 + i / 3) % 1;
         ctx.globalAlpha = li * (1 - ph) * 0.9;
-        const r = 70 + ph * 120;
-        const cx = P.x + side * 520, cy = P.y - 640;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, side > 0 ? -0.6 : Math.PI - 0.6, side > 0 ? 0.6 : Math.PI + 0.6);
-        ctx.stroke();
+        const a0 = side > 0 ? -0.6 : Math.PI - 0.6;
+        pen.line(arcPts(P.x + side * 520, P.y - 640, 70 + ph * 120, a0, a0 + 1.2, 14), false, 14, accent);
       }
     }
     ctx.globalAlpha = 1;
   }
 }
 
-root.Mibo = { DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, textToVisemes, Puppet };
+root.Mibo = { DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, drawPaper,
+  textToVisemes, Puppet };
 })(typeof window !== 'undefined' ? window : globalThis);

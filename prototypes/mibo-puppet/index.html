@@ -73,21 +73,71 @@
   select { font: inherit; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
   textarea { width: 100%; min-height: 120px; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 8px; }
   .status { font-size: 13px; color: var(--accent); min-height: 1.2em; }
+  [hidden] { display: none !important; }
+  .viewbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+  .seg { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+  .seg button { border: 0; background: transparent; min-height: 32px; padding: 6px 12px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .stages { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stages.single { grid-template-columns: minmax(0, 1fr); }
+  .stage.paper { background: #fbf6ec; border-color: #e7dcc8; }
+  .stage-label { position: absolute; left: 10px; top: 10px; pointer-events: none; font: 700 13px/1 var(--body);
+    padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.88); color: #17211d; box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+    white-space: nowrap; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 520px) { .stage-label { font-size: 11px; padding: 5px 8px; left: 6px; top: 6px; } }
+  .note { margin: 0; font-size: 14px; color: var(--muted); }
+  .tally { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; font-variant-numeric: tabular-nums; }
+  .tally div { border: 1px solid var(--line); border-radius: 10px; padding: 8px; text-align: center; }
+  .tally b { display: block; font: 700 22px/1.1 var(--display); }
+  .tally span { font-size: 12px; color: var(--muted); }
 </style>
 
 <div class="wrap">
   <header>
     <h1>Mibo Puppet Lab</h1>
-    <p>Mibo drawn from shapes in code, not sprites. Try the moods and moves, play the mini lesson, and tune the teaching mouths. Voice comes later, so captions stand in for audio.</p>
+    <p>Style A/B test: one puppet, two looks, moving in sync. A is clean vector at 60 fps. B is watercolor and coloured pencil, drawn at a hand-animation frame rate with boiling lines. Captions stand in for the voice.</p>
   </header>
 
   <div class="layout">
     <section class="stage-card" aria-label="Mibo">
-      <div class="stage"><canvas id="stage" aria-label="Animated Mibo. Tap Mibo to boop."></canvas></div>
+      <div class="viewbar">
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" data-view="both">Side by side</button>
+          <button type="button" data-view="a">A only</button>
+          <button type="button" data-view="b">B only</button>
+        </div>
+        <button type="button" id="swap">Swap sides</button>
+      </div>
+      <div class="stages" id="stages">
+        <div class="stage" id="wrapA"><canvas id="stageA" aria-label="Style A, clean. Tap Mibo to boop."></canvas><span class="stage-label" id="labelA"></span></div>
+        <div class="stage paper" id="wrapB"><canvas id="stageB" aria-label="Style B, hand-drawn. Tap Mibo to boop."></canvas><span class="stage-label" id="labelB"></span></div>
+      </div>
       <div class="caption" id="caption" aria-live="polite"></div>
     </section>
 
     <div class="deck">
+      <section class="panel">
+        <h2>A/B test <small>blind, sides shuffled</small></h2>
+        <p class="note">Start a round, play the mini lesson, then pick the side you or your child like more. Labels hide until you vote.</p>
+        <div class="chips">
+          <button type="button" id="blindStart">Start blind round</button>
+          <button type="button" id="voteL" hidden>Left wins</button>
+          <button type="button" id="voteR" hidden>Right wins</button>
+          <button type="button" id="voteTie" hidden>Can't tell</button>
+        </div>
+        <div class="tally" id="tally"></div>
+        <div class="row">
+          <button type="button" id="copyVotes">Copy results</button>
+          <button type="button" id="resetVotes">Reset votes</button>
+          <span class="status" id="abStatus" role="status"></span>
+        </div>
+      </section>
+
+      <details class="panel" id="sketchPanel" open>
+        <summary>Hand-drawn look (B)</summary>
+        <div class="sliders" id="sketchSliders"></div>
+      </details>
+
       <section class="panel">
         <h2>Talk <small>captions stand in for the voice</small></h2>
         <div class="chips">
@@ -154,14 +204,14 @@
 <script>
 (() => {
   const M = window.Mibo;
-  const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
   const mibo = new M.Puppet();
   const ORIGINAL = JSON.parse(JSON.stringify(M.VISEMES));
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const settings = { energy: reduce ? 0.25 : 0.7, bounce: 0.55, mouthScale: 1.15, outline: 13, talkSpeed: 1, brows: true };
+  const settings = { energy: reduce ? 0.25 : 0.7, bounce: 0.55, mouthScale: 1.15, outline: 13, talkSpeed: 1, brows: true,
+    fps: 12, boil: 1, bleed: 1, paper: 0.6, view: 'both', swap: false };
 
   // ---- remembered tuning (per viewer, optional)
-  const KEY = 'mibo-puppet-lab-v1';
+  const KEY = 'mibo-style-ab-v1';
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (saved) { Object.assign(settings, saved.settings || {}); for (const k in saved.visemes || {}) Object.assign(M.VISEMES[k], saved.visemes[k]); }
@@ -302,45 +352,130 @@
     } else fallback();
   };
 
-  // ---- stage
-  let W = 0, H = 0, dpr = 1, cam = { s: 1, ox: 0, oy: 0 };
-  const resize = () => {
-    dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    W = cv.clientWidth; H = cv.clientHeight;
-    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  };
-  new ResizeObserver(resize).observe(cv); resize();
-  const toWorld = e => {
-    const r = cv.getBoundingClientRect();
-    return [(e.clientX - r.left - cam.ox) / cam.s, (e.clientY - r.top - cam.oy) / cam.s];
-  };
-  cv.addEventListener('pointermove', e => mibo.point(...toWorld(e)));
-  cv.addEventListener('pointerdown', e => mibo.poke(...toWorld(e)));
+  // ---- hand-drawn sliders
+  const SK = [['fps', 'Frame rate', 6, 24, 1], ['boil', 'Line boil', 0, 2, 0.05], ['bleed', 'Colour offset', 0, 2, 0.05], ['paper', 'Paper grain', 0, 1, 0.05]];
+  const skHost = document.getElementById('sketchSliders');
+  for (const [k, label, a, b, st] of SK) slider(skHost, 's-' + k, label, a, b, st, settings[k], v => { settings[k] = v; persist(); labelStages(); });
 
+  // ---- stages: one puppet, two renderers
+  const $ = id => document.getElementById(id);
+  const stages = [
+    { key: 'A', name: 'Clean', style: 'clean', cv: $('stageA'), wrap: $('wrapA'), label: $('labelA') },
+    { key: 'B', name: 'Hand-drawn', style: 'sketch', cv: $('stageB'), wrap: $('wrapB'), label: $('labelB') },
+  ];
+  let dpr = 1, blind = null;
+  for (const s of stages) {
+    s.ctx = s.cv.getContext('2d'); s.cam = { s: 1, ox: 0, oy: 0 }; s.W = 0; s.H = 0; s.dirty = true;
+    new ResizeObserver(() => {
+      dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      s.W = s.cv.clientWidth; s.H = s.cv.clientHeight;
+      s.cv.width = Math.round(s.W * dpr); s.cv.height = Math.round(s.H * dpr); s.dirty = true;
+    }).observe(s.cv);
+    const toWorld = e => { const r = s.cv.getBoundingClientRect(); return [(e.clientX - r.left - s.cam.ox) / s.cam.s, (e.clientY - r.top - s.cam.oy) / s.cam.s]; };
+    s.cv.addEventListener('pointermove', e => mibo.point(...toWorld(e)));
+    s.cv.addEventListener('pointerdown', e => mibo.poke(...toWorld(e)));
+  }
+  function labelStages() {
+    const [A, B] = stages;
+    if (blind) {
+      const leftIsA = !settings.swap;
+      A.label.textContent = leftIsA ? 'Left' : 'Right'; B.label.textContent = leftIsA ? 'Right' : 'Left';
+    } else {
+      A.label.textContent = 'A · Clean 60 fps'; B.label.textContent = `B · Hand-drawn ${settings.fps} fps`;
+    }
+  }
+  function applyView() {
+    const v = blind ? 'both' : settings.view;
+    stages[0].wrap.hidden = v === 'b'; stages[1].wrap.hidden = v === 'a';
+    $('stages').classList.toggle('single', v !== 'both');
+    stages[0].wrap.style.order = settings.swap ? 2 : 1; stages[1].wrap.style.order = settings.swap ? 1 : 2;
+    document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
+    stages.forEach(s => { s.dirty = true; });
+    labelStages();
+  }
+  document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { if (blind) return; settings.view = b.dataset.view; persist(); applyView(); });
+  $('swap').onclick = () => { if (blind) return; settings.swap = !settings.swap; persist(); applyView(); };
+  applyView();
+
+  // ---- blind A/B votes (kept in this browser only)
+  const VKEY = 'mibo-style-ab-votes-v1';
+  let votes = { A: 0, B: 0, tie: 0, log: [] };
+  try { votes = Object.assign(votes, JSON.parse(localStorage.getItem(VKEY) || '{}')); } catch (e) {}
+  const saveVotes = () => { try { localStorage.setItem(VKEY, JSON.stringify(votes)); } catch (e) {} };
+  const abStatus = $('abStatus');
+  function renderTally() {
+    $('tally').innerHTML = `<div><b>${votes.A}</b><span>A · Clean</span></div><div><b>${votes.B}</b><span>B · Hand-drawn</span></div><div><b>${votes.tie}</b><span>Can't tell</span></div>`;
+  }
+  renderTally();
+  const voteBtns = ['voteL', 'voteR', 'voteTie'].map($);
+  $('blindStart').onclick = () => {
+    blind = { started: Date.now() };
+    settings.swap = Math.random() < 0.5;
+    voteBtns.forEach(b => { b.hidden = false; }); $('blindStart').hidden = true;
+    abStatus.textContent = 'Sides shuffled. Play the mini lesson, then vote.';
+    applyView();
+  };
+  function vote(side) {
+    const leftIsA = !settings.swap;
+    const winner = side === 'tie' ? 'tie' : (side === 'L') === leftIsA ? 'A' : 'B';
+    votes[winner]++; votes.log.push({ winner, at: new Date().toISOString(), fps: settings.fps, boil: settings.boil });
+    saveVotes(); renderTally();
+    abStatus.textContent = winner === 'tie' ? "Logged as can't tell." : `That was ${winner === 'A' ? 'A · Clean' : 'B · Hand-drawn'}.`;
+    blind = null; voteBtns.forEach(b => { b.hidden = true; }); $('blindStart').hidden = false;
+    applyView();
+  }
+  $('voteL').onclick = () => vote('L'); $('voteR').onclick = () => vote('R'); $('voteTie').onclick = () => vote('tie');
+  $('resetVotes').onclick = () => { votes = { A: 0, B: 0, tie: 0, log: [] }; saveVotes(); renderTally(); abStatus.textContent = 'Votes cleared.'; };
+  $('copyVotes').onclick = () => {
+    const json = JSON.stringify({ votes: { A_clean: votes.A, B_handDrawn: votes.B, cantTell: votes.tie }, rounds: votes.log, settings }, null, 1);
+    const fallback = () => { dump.hidden = false; dump.value = json; $('mouthPanel').open = true; dump.focus(); dump.select(); abStatus.textContent = 'Copy from the box in the mouth editor.'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(json).then(() => { abStatus.textContent = 'Copied. Paste it to Claude.'; }, fallback);
+    else fallback();
+  };
+
+  // ---- render loop
   const accent = () => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#0e7c66';
   let accentCol = accent();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { accentCol = accent(); });
   new MutationObserver(() => { accentCol = accent(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  let last = performance.now();
-  function frame(now) {
-    const dt = (now - last) / 1000; last = now;
-    mibo.update(dt);
-    const P = mibo.P;
-    const s = Math.min(W / 1500, H / 1450) * P.camZoom;
-    cam = { s, ox: W / 2 - P.camX * s, oy: H / 2 - P.camY * s };
+  function render(s, P, seed) {
+    const { ctx, W, H } = s;
+    if (!W || !H) return;
+    const sc = Math.min(W / 1500, H / 1450) * P.camZoom;
+    s.cam = { s: sc, ox: W / 2 - P.camX * sc, oy: H / 2 - P.camY * sc };
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * cam.ox, dpr * cam.oy);
-    M.drawMibo(ctx, P, { outline: settings.outline, brows: settings.brows, mouthScale: settings.mouthScale });
-    M.drawFx(ctx, P, mibo.t, accentCol);
-    M.drawParticles(ctx, mibo.particles);
+    ctx.clearRect(0, 0, s.cv.width, s.cv.height);
+    const sketch = s.style === 'sketch';
+    if (sketch) { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); M.drawPaper(ctx, W, H, settings.paper); }
+    ctx.setTransform(dpr * sc, 0, 0, dpr * sc, dpr * s.cam.ox, dpr * s.cam.oy);
+    const o = { style: s.style, outline: settings.outline, brows: settings.brows, mouthScale: settings.mouthScale,
+      seed, boil: settings.boil, bleed: settings.bleed };
+    M.drawMibo(ctx, P, o);
+    M.drawFx(ctx, P, mibo.t, sketch ? '#2c7a5c' : accentCol, o);
+    M.drawParticles(ctx, mibo.particles, o);
     if (mibo.watch > 0.02) {
       // soft spotlight on the mouth during "watch me"
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
-      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${0.28 * mibo.watch})`);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${(sketch ? 0.16 : 0.28) * mibo.watch})`);
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  // B is drawn "on twos": it samples the same puppet but only redraws at the
+  // chosen frame rate, cycling three wobble variants so lines boil when still.
+  let last = performance.now(), acc = 1, boilFrame = 0;
+  function frame(now) {
+    const dt = (now - last) / 1000; last = now;
+    mibo.update(dt);
+    const [A, B] = stages;
+    if (!A.wrap.hidden) render(A, mibo.P, 0);
+    acc += dt;
+    if (!B.wrap.hidden && (acc >= 1 / settings.fps || B.dirty)) {
+      acc = acc >= 1 / settings.fps ? acc % (1 / settings.fps) : acc;
+      boilFrame = (boilFrame + 1) % 3;
+      render(B, mibo.P, boilFrame); B.dirty = false;
     }
     requestAnimationFrame(frame);
   }
