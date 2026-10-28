@@ -452,7 +452,7 @@
     const { P } = snap;
     const { ctx, W, H } = s;
     if (!W || !H) return;
-    const sc = Math.min(W / 1500, H / 1450) * P.camZoom;
+    const sc = Math.min(W / M.STYLE.frame, H / (M.STYLE.frame - 50)) * P.camZoom;
     s.cam = { s: sc, ox: W / 2 - P.camX * sc, oy: H / 2 - P.camY * sc };
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, s.cv.width, s.cv.height);

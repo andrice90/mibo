@@ -1,5 +1,7 @@
 /* Mibo puppet: a parametric, code-drawn Mibo.
  *
+ * The app (app/src/puppet) loads this same file through a Canvas2D shim on Skia.
+ *
  * Three layers, kept apart so they port to React Native Skia + Reanimated:
  *   1. Rig      drawMibo(ctx, P)   pure: a flat parameter object -> canvas drawing
  *   2. Presets  VISEMES, MOODS     plain data: parameter targets
@@ -26,24 +28,28 @@ const COLORS = {
   shadow: '20,40,30',
 };
 
-// Body outline anchors (clockwise from the top), traced from the idle pose.
+// Body outline anchors (clockwise from the top), after the founder's original
+// art (2026-10-28): a squat, soft blob with two rolls down the left side.
 const BODY = [
-  [0, -990], [215, -950], [360, -830], [440, -650], [470, -450], [492, -285],
-  [515, -125], [470, -22], [300, 3], [0, 8], [-300, 3], [-452, -12], [-512, -92],
-  [-506, -205], [-478, -305], [-470, -450], [-440, -650], [-360, -830], [-215, -950],
+  [-20, -932], [140, -911], [272, -842], [362, -730], [418, -584], [452, -430], [480, -290],
+  [494, -160], [456, -50], [330, -2], [60, 8], [-220, 4], [-402, -22], [-480, -70],
+  [-508, -128], [-502, -188], [-472, -240], [-490, -292], [-505, -350], [-494, -410],
+  [-462, -466], [-450, -530], [-426, -580],
+  [-382, -721], [-298, -833], [-168, -909],
 ];
 const FACE = {
-  eyeL: [-205, -605], eyeR: [215, -605], eyeR0: 108,
-  mouth: [10, -450], blushL: [-300, -505], blushR: [312, -505],
-  glint: [[-350, -760], [-302, -830], [-218, -878], [-122, -896]],
-  dot: [-332, -705], lowGlint: [-486, -150],
+  eyeL: [-178, -560], eyeR: [188, -560], eyeR0: 120,
+  mouth: [5, -425], blushL: [-282, -452], blushR: [296, -452],
+  glint: [[-374, -590], [-352, -694], [-298, -788], [-206, -850]],
+  dot: [-382, -505], lowGlint: [-462, -122],
 };
 // Arm angles: degrees from straight down, positive swings away from the body.
 const ARMS = {
   // ext: how far the arm's base reaches back into the body (fraction of len),
   // so the shoulder end never crosses the body outline and leaves a notch.
-  L: { root: [-330, -405], len: 235, w: 104, side: -1, ext: 0.12 },  // front arm, resting on the belly
-  R: { root: [452, -335], len: 228, w: 104, side: 1, ext: 0.45 },    // side arm
+  // rest/stub: at its rest angle the arm is only `stub` of len long.
+  L: { root: [-360, -265], len: 245, w: 175, side: -1, ext: 0.12, rest: -48, stub: 0.45 },  // front arm, resting on the belly
+  R: { root: [372, -320], len: 300, w: 182, side: 1, ext: 0.55, rest: 34, stub: 0.55 },     // side arm
 };
 
 // ------------------------------------------------------------------ presets
@@ -58,19 +64,20 @@ const STYLE = {
   mouthFps: 24,   // mouth shape swaps over the held body
   boilFps: 3,     // line wobble variants
   boil: 1, bleed: 1, paper: 0.6,
+  frame: 1750,   // character-space width the stage fits; larger draws Mibo smaller
 };
 
 
 const DEFAULTS = {
   x: 0, y: 0, sy: 1, spread: 0, lean: 0, jelly: 0, tilt: 0,
-  camZoom: 1, camX: 0, camY: -540,
+  camZoom: 1, camX: 0, camY: -460,
   lookX: 0, lookY: 0,
   open: 1, winkL: 0, winkR: 0, happy: 0, topLid: 0, eyeScale: 1, sparkle: 1,
   browRaise: 0, browAngle: 0, browAsym: 0,
   mw: 150, mh: 0, round: 0, smile: 0.55, square: 0, teethTop: 0, teethBot: 0,
   tongueUp: 0, tongueOut: 0, bite: 0, mx: 0,
   blush: 0.55,
-  armL: -8, armR: 38, armLBend: 0.35, armRBend: -0.1,
+  armL: -48, armR: 34, armLBend: 0.6, armRBend: -0.1,
   think: 0, listen: 0, mouthBoost: 1,
 };
 const MOUTH_KEYS = ['mw', 'mh', 'round', 'smile', 'square', 'teethTop', 'teethBot',
@@ -95,6 +102,11 @@ const VISEMES = {
   kg: { mw: 210, mh: 95, smile: 0.2, teethTop: 0.4 },
   rr: { mw: 175, mh: 80, round: 0.55 },
   gap: { mw: 170, mh: 28, smile: 0.4 },
+  // talk shapes for audio-aligned lip sync (app/src/voice/g2p.ts maps phonemes onto these)
+  n: { mw: 205, mh: 50, smile: 0.35, teethTop: 0.75, teethBot: 0.35, tongueUp: 0.7 },  // n: tongue up behind the teeth
+  ih: { mw: 250, mh: 95, square: 0.55, smile: 0.5, teethTop: 0.8, teethBot: 0.35 },    // short i, "sit"
+  uh: { mw: 205, mh: 125, smile: 0.2, teethTop: 0.35 },                                 // relaxed "sun", "a"
+  w: { mw: 120, mh: 52, round: 1, smile: -0.1 },                                         // tight pucker, "we"
 };
 const TEACHING = ['s', 'th', 'sh', 'f', 'mbp', 'ah', 'ee', 'eh', 'oh', 'oo', 'l'];
 
@@ -187,19 +199,21 @@ function toPath(pts, closed = true) {
 
 /** Arm outline: one side root -> tip, round cap, other side back to the root. */
 function armGeom(arm, angleDeg, bend, d) {
+  // Stubby flipper at rest; stretches to full length as it swings away to reach or wave.
+  const len = arm.len * lerp(arm.stub, 1, ease(clamp(Math.abs(angleDeg - arm.rest) / 70, 0, 1)));
   // The front arm slides out to the body edge as it lifts, so raised arms clear the body.
   const lift = arm.side < 0 ? clamp((angleDeg - 20) / 100, 0, 1) : 0;
-  const rootPt = d(lerp(arm.root[0], -425, lift), lerp(arm.root[1], -450, lift));
+  const rootPt = d(lerp(arm.root[0], -440, lift), lerp(arm.root[1], -420, lift));
   const a = angleDeg * Math.PI / 180;
   const dir = [Math.sin(a) * arm.side, Math.cos(a)];
   const nrm = [-dir[1], dir[0]];
   const N = 10, left = [], right = [], center = [], us = [];
   const ext = arm.ext || 0;
-  const curl = bend * arm.len * 0.35 * arm.side;  // positive bend curls the tip inward
+  const curl = bend * len * 0.35 * arm.side;  // positive bend curls the tip inward
   for (let i = 0; i <= N; i++) {
     const u = -ext + (1 + ext) * i / N, off = curl * Math.max(u, 0) ** 2;
     us.push(u);
-    center.push([rootPt[0] + dir[0] * arm.len * u + nrm[0] * off, rootPt[1] + dir[1] * arm.len * u + nrm[1] * off]);
+    center.push([rootPt[0] + dir[0] * len * u + nrm[0] * off, rootPt[1] + dir[1] * len * u + nrm[1] * off]);
   }
   for (let i = 0; i <= N; i++) {
     const a0 = center[Math.max(0, i - 1)], a1 = center[Math.min(N, i + 1)];
@@ -722,7 +736,7 @@ function drawMibo(ctx, P, opts = {}) {
   pen.f = f;
   const lx = P.lookX * f;  // gaze is in screen space; convert into the (possibly mirrored) body
   const lift = clamp(-P.y / 500, 0, 1);
-  pen.shadow(P.x, 470 * (1 + (1 - P.sy) * 0.9) * (1 + P.spread * 0.6) * (1 - lift * 0.45), 42 * (1 - lift * 0.4), 0.18 * (1 - lift * 0.6));
+  pen.shadow(P.x, 500 * (1 + (1 - P.sy) * 0.9) * (1 + P.spread * 0.6) * (1 - lift * 0.45), 42 * (1 - lift * 0.4), 0.18 * (1 - lift * 0.6));
   ctx.save();
   ctx.translate(P.x, P.y);
   ctx.translate(0, -470); ctx.rotate(P.tilt * Math.PI / 180); ctx.translate(0, 470);
@@ -768,40 +782,67 @@ const VOWEL = { a: 'ah', e: 'eh', i: 'eh', o: 'oh', u: 'ah' };
 const CONS = { m: 'mbp', b: 'mbp', p: 'mbp', f: 'f', v: 'f', s: 's', z: 's', x: 's', l: 'l',
   t: 'dt', d: 'dt', n: 'dt', k: 'kg', g: 'kg', q: 'kg', h: 'kg', r: 'rr', w: 'oo', j: 'sh' };
 const HOLDABLE = new Set(['s', 'sh', 'th', 'f', 'ah', 'ee', 'eh', 'oh', 'oo', 'mbp', 'l']);
+// Common words whose spelling misleads the letter rules below.
+const WORDS = {
+  you: ['ee', 'oo'], your: ['ee', 'oh', 'rr'], to: ['dt', 'oo'], do: ['dt', 'oo'], who: ['oo'], two: ['dt', 'oo'],
+  the: ['th', 'ah'], i: ['ah', 'ee'], "i'm": ['ah', 'ee', 'mbp'], my: ['mbp', 'ah', 'ee'], hi: ['ah', 'ee'],
+  now: ['dt', 'ah', 'oo'], wow: ['oo', 'ah', 'oo'], one: ['oo', 'ah', 'dt'], what: ['oo', 'ah', 'dt'],
+  are: ['ah', 'rr'], our: ['ah', 'oo', 'rr'], put: ['mbp', 'oo', 'dt'], ooh: ['oo'], hmm: ['mbp'], oh: ['oh'],
+  tongue: ['dt', 'ah', 'kg'], mouth: ['mbp', 'ah', 'oo', 'th'], sound: ['s', 'ah', 'oo', 'dt'], great: ['kg', 'rr', 'eh', 'dt'],
+  again: ['ah', 'kg', 'eh', 'dt'], mibo: ['mbp', 'ee', 'mbp', 'oh'], friend: ['f', 'rr', 'eh', 'dt'], new: ['dt', 'oo'], blow: ['mbp', 'l', 'oh'],
+};
+const isLetter = ch => /[a-z']/.test(ch || '');
+const isVowelCh = ch => 'aeiou'.includes(ch || '~');
 
 /** Rough grapheme-to-viseme timeline. Stretched letters ("Sssss") become holds. */
 function textToVisemes(text, speed = 1) {
   const out = [];
   const s = text.toLowerCase();
   const push = (v, d, i, hold) => out.push({ v, d: d / speed, i, hold: !!hold });
+  const DUR = v => (['ah', 'eh', 'ee', 'oh', 'oo'].includes(v) ? 0.12 : 0.075);
   for (let i = 0; i < s.length;) {
     const c = s[i], two = s.slice(i, i + 2);
     if (/\s/.test(c)) { push('gap', 0.05, i); i++; continue; }
     if (s.startsWith('...', i) || c === '…') { push('rest', 0.55, i); i += c === '…' ? 1 : 3; continue; }
     if (',;:'.includes(c)) { push('rest', 0.26, i); i++; continue; }
     if ('.!?'.includes(c)) { push('rest', 0.36, i); i++; continue; }
-    if (!/[a-z']/.test(c)) { i++; continue; }
+    if (!isLetter(c)) { i++; continue; }
+    if (!isLetter(s[i - 1])) {
+      let e = i; while (isLetter(s[e])) e++;
+      const w = WORDS[s.slice(i, e)];
+      if (w) { w.forEach((v, k) => push(v, DUR(v), i + Math.min(k, e - i - 1))); i = e; continue; }
+    }
     let v, len = 1;
+    let ws = i; while (isLetter(s[ws - 1])) ws--;  // start of the current word
+    const end = !isLetter(s[i + 1]);
+    // "make", "time", "hope", "cube": a vowel, one consonant, then a final silent e
+    const magic = !isVowelCh(s[i + 1]) && isLetter(s[i + 1]) && s[i + 2] === 'e' && !isLetter(s[i + 3]);
     if (two === 'sh' || two === 'ch') { v = 'sh'; len = 2; }
     else if (two === 'th') { v = 'th'; len = 2; }
     else if (two === 'ee' || two === 'ea') { v = 'ee'; len = 2; }
     else if (two === 'oo') { v = 'oo'; len = 2; }
+    else if (two === 'oa' || two === 'oe') { v = 'oh'; len = 2; }
+    else if (two === 'ai' || two === 'ay') { v = 'eh'; len = 2; }
     else if (two === 'ou' || two === 'ow') { v = 'oh'; len = 2; }
     else if (c === 'y') v = 'ee';
     else if (c === 'c') v = 'ei'.includes(s[i + 1]) ? 's' : 'kg';
     else if (c === "'") { i++; continue; }
     else if (VOWEL[c]) {
-      // silent final e ("make", "nice")
-      if (c === 'e' && !/[a-z]/.test(s[i + 1] || '') && i > 1 && !'aeiou'.includes(s[i - 1])) { i++; continue; }
-      v = VOWEL[c];
+      if (c === 'e' && end) {
+        // "me", "he", "we" say it; longer words keep a silent final e ("make", "nice")
+        if (i - ws > 1 && !isVowelCh(s[i - 1])) { i++; continue; }
+        v = 'ee';
+      } else if (magic) v = { a: 'eh', i: 'ah', o: 'oh', u: 'oo', e: 'ee' }[c];
+      else if (c === 'o' && end) v = 'oh';                                       // go, so, no
+      else if (c === 'u' && !isVowelCh(s[i + 1]) && isVowelCh(s[i + 2])) v = 'oo';  // super, music
+      else v = VOWEL[c];
     } else v = CONS[c] || 'dt';
     // count stretched repeats of the last letter: "sssss", "thhhh", "ahhh"
     let j = i + len;
     const rep = s[i + len - 1];
     while (s[j] === rep) j++;
     const extra = j - (i + len);
-    const vowel = ['ah', 'eh', 'ee', 'oh', 'oo'].includes(v);
-    let d = vowel ? 0.12 : 0.075;
+    let d = DUR(v);
     const hold = extra >= 2 && HOLDABLE.has(v);
     if (extra > 0) d += Math.min(extra, 8) * (hold ? 0.17 : 0.03);
     push(v, d, i, hold);
@@ -1004,7 +1045,8 @@ class Puppet {
       if (g.act) this.act(g.act);
       if (g.call) { g.call(); this.seg = null; return; }
       if (g.say) {
-        this.speech = { list: textToVisemes(g.say, this.talkSpeed), idx: 0, at: 0 };
+        // visemes: a mouth track taken from real audio, replacing the guess from the text
+        this.speech = { list: g.visemes || textToVisemes(g.say, this.talkSpeed), idx: 0, at: 0 };
         this.speech.total = this.speech.list.reduce((a, b) => a + b.d, 0);
         this.caption(g.say, 0);
       } else if (g.model) {
@@ -1015,7 +1057,7 @@ class Puppet {
     }
     const g = this.seg;
     if (!g) return;
-    g.t += dt;
+    g.t = g.clock ? g.clock() : g.t + dt;  // clock: the audio player's position, so the mouth cannot drift
     if (g.say) {
       const sp = this.speech;
       while (sp.idx < sp.list.length && g.t > sp.at + sp.list[sp.idx].d) { sp.at += sp.list[sp.idx].d; sp.idx++; sp.bumped = false; }
@@ -1171,7 +1213,7 @@ function drawFx(ctx, P, t, accent, opts = {}) {
   const pen = makePen(ctx, opts);
   const th = clamp(P.think, 0, 1), li = clamp(P.listen, 0, 1);
   if (th > 0.02) {
-    [[300, -1050, 22], [385, -1125, 30], [490, -1215, 40]].forEach(([x, y, r], i) => {
+    [[300, -930, 22], [385, -1005, 30], [490, -1095, 40]].forEach(([x, y, r], i) => {
       const pulse = 0.5 + 0.5 * Math.sin(t * 5 - i * 0.9);
       ctx.globalAlpha = th * (0.35 + 0.65 * pulse);
       const pts = ellipsePts(P.x + x, P.y + y - pulse * 8, r * (0.9 + pulse * 0.15), r * (0.9 + pulse * 0.15), 24);
@@ -1186,7 +1228,7 @@ function drawFx(ctx, P, t, accent, opts = {}) {
         const ph = (t * 0.9 + i / 3) % 1;
         ctx.globalAlpha = li * (1 - ph) * 0.9;
         const a0 = side > 0 ? -0.6 : Math.PI - 0.6;
-        pen.line(arcPts(P.x + side * 520, P.y - 640, 70 + ph * 120, a0, a0 + 1.2, 14), false, 14, accent);
+        pen.line(arcPts(P.x + side * 560, P.y - 560, 70 + ph * 120, a0, a0 + 1.2, 14), false, 14, accent);
       }
     }
     ctx.globalAlpha = 1;
