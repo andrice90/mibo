@@ -17,7 +17,7 @@ audio (silence / vowel by formants / fricative by spectral centroid).
 That keeps lip sync vendor-independent.
 
 Needs an OpenRouter *inference* key (a management key gets 401):
-    OPENROUTER_TTS_KEY=sk-or-v1-... python3 tools/tts_eval.py
+    OPENROUTER_LLM_API_KEY=sk-or-v1-... python3 tools/tts_eval.py
     python3 tools/tts_eval.py --models gemini-3.8-flash,kokoro --judge
     python3 tools/tts_eval.py --dry-run
 Outputs go to eval/tts/out/ (git-ignored): one WAV per clip, report.json,
@@ -396,9 +396,10 @@ def run(args) -> int:
         for c in cands:
             print(f"  {c.key:32s} {c.model}  voice={c.voice}  fmt={c.fmt}")
         return 0
-    key = os.environ.get("OPENROUTER_TTS_KEY") or os.environ.get("OPENROUTER_API_KEY")
+    key = (os.environ.get("OPENROUTER_TTS_KEY") or os.environ.get("OPENROUTER_LLM_API_KEY")
+           or os.environ.get("OPENROUTER_API_KEY"))
     if not key:
-        print("Set OPENROUTER_TTS_KEY to an OpenRouter inference key.", file=sys.stderr)
+        print("Set OPENROUTER_LLM_API_KEY (or OPENROUTER_TTS_KEY) to an OpenRouter inference key.", file=sys.stderr)
         return 2
 
     OUT.mkdir(parents=True, exist_ok=True)
