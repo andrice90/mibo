@@ -74,10 +74,10 @@ const VISEMES = {
   oh: { mw: 200, mh: 190, round: 0.6, smile: 0 },
   oo: { mw: 210, mh: 105, round: 0.95, smile: -0.05 },
   s: { mw: 275, mh: 56, square: 0.9, smile: 0.45, teethTop: 1, teethBot: 1 },
-  sh: { mw: 215, mh: 115, round: 0.75, square: 0.3, teethTop: 1, teethBot: 1 },
-  th: { mw: 235, mh: 72, smile: 0.2, teethTop: 0.8, teethBot: 0.5, tongueOut: 1 },
-  f: { mw: 235, mh: 32, smile: 0.15, teethTop: 1, bite: 1 },
-  l: { mw: 225, mh: 150, smile: 0.2, teethTop: 0.5, tongueUp: 1 },
+  sh: { mw: 205, mh: 120, round: 0.7, smile: 0, teethTop: 0.62, teethBot: 0.55 },
+  th: { mw: 235, mh: 76, smile: 0.2, teethTop: 0.7, teethBot: 0.45, tongueOut: 1 },
+  f: { mw: 220, mh: 30, smile: 0.15, teethTop: 1, bite: 1 },
+  l: { mw: 225, mh: 160, smile: 0.2, teethTop: 0.45, tongueUp: 1 },
   dt: { mw: 210, mh: 55, smile: 0.3, teethTop: 0.8, teethBot: 0.5 },
   kg: { mw: 210, mh: 95, smile: 0.2, teethTop: 0.4 },
   rr: { mw: 175, mh: 80, round: 0.55 },
@@ -209,7 +209,7 @@ function mouthGeom(P, k, sx, sy) {
   const round = clamp(P.round, 0, 1), sq = clamp(P.square, 0, 1);
   const we = w * (1 - 0.5 * round);
   const pexp = 2 + sq * 3;
-  const topR = 0.38 - 0.1 * round;
+  const topR = 0.3 - 0.08 * round;  // the jaw drops: most of the opening goes down, away from the eyes
   const lift = P.smile * we * 0.2;
   const pts = [], N = 64;
   for (let i = 0; i < N; i++) {
@@ -434,6 +434,7 @@ class SketchPen extends CleanPen {
     if (role === 'glint' || role === 'teeth' || role === 'paper') {
       c.fillStyle = SKETCH[role] || SKETCH.paper; c.fill(main); return main;
     }
+    if (role === 'tongue') { c.fillStyle = col; c.fill(main); }  // solid base so it reads as one object, not a glaze
     this.wash(main, bbox(pts), col, dark ? 1.15 : 1, dark ? 8 : 10);
     c.save(); c.globalAlpha = 0.28; c.fillStyle = col;
     c.fill(this.shape(pts, true, 0.9, 1)); c.restore();
@@ -576,49 +577,123 @@ function drawBrow(pen, ex, ey, r, sx, sy, inner, raise, angle) {
     false, pen.LW * 1.35);
 }
 
-function drawMouth(pen, cx, cy, sx, sy, P) {
+/** A path covering everything except pts: clip to it to hide marks inside a shape. */
+function outsideOf(pts) {
+  const p = new Path2D(); p.rect(-4000, -4000, 8000, 8000); p.addPath(toPath(pts)); return p;
+}
+function domePts(halfW, yBase, yTop, n = 10) {
+  // a rounded hump from (-halfW, yBase) up to (0, yTop) and back down
+  const L = [], R = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    L.push(bez([-halfW, yBase], [-halfW, yTop + (yBase - yTop) * 0.25], [-halfW * 0.45, yTop], [0, yTop], t));
+    R.push(bez([0, yTop], [halfW * 0.45, yTop], [halfW, yTop + (yBase - yTop) * 0.25], [halfW, yBase], t));
+  }
+  return [...L, ...R.slice(1), [halfW, yBase + 400], [-halfW, yBase + 400]];
+}
+
+/**
+ * Keep the mouth below the eyes: returns how far to slide it down so no
+ * point of the mouth sits inside an eye's keep-out ellipse. Uses the eyes'
+ * full size (not blink-squashed) so the mouth does not jump during blinks.
+ */
+function eyeClearance(pts, ox, oy, eyes, margin) {
+  let dy = 0;
+  for (const [x, y] of pts) {
+    const X = ox + x, Y = oy + y;
+    for (const e of eyes) {
+      const u = (X - e.x) / (e.rx + margin);
+      if (Math.abs(u) >= 1) continue;
+      const bottom = e.y + (e.ry + margin) * Math.sqrt(1 - u * u);
+      if (Y < bottom) dy = Math.max(dy, bottom - Y);
+    }
+  }
+  return dy;
+}
+
+function drawMouth(pen, cx, cy, sx, sy, P, eyes) {
   const ctx = pen.ctx, LW = pen.LW, k = P.mouthBoost;
   const M = mouthGeom(P, k, sx, sy);
   const { we, h, topR, lift } = M;
+  const ox = cx + P.mx * k * sx;
   const yTop = -h * topR, yBot = h * (1 - topR);
+  const ttop = yTop + clamp(P.teethTop, 0, 1) * h * 0.5;
   const curve = y => quadPts([-we / 2, y - lift], [0, y + lift], [we / 2, y - lift], 12);
   const band = (y, dir) => {
     // a teeth band whose free edge follows the smile curve
     const far = y + dir * 400;
     return [[-we, far], [-we, y - lift], ...curve(y), [we, y - lift], [we, far]];
   };
+
+  // Parts that cross the lip line are drawn as one outline with the mouth.
+  // /th/ and silly: the tongue slides out from under the top teeth.
+  let tongue = null;
+  if (P.tongueOut > 0.02 && h > 6) {
+    const tw = we * 0.22, reach = yBot + (18 + 34 * P.tongueOut) * k * sy;
+    const top = Math.max(ttop, yBot - h * 0.55);  // starts low in the mouth, under the top teeth
+    // rounded top inside the mouth, straight sides, round tip outside
+    tongue = quadPts([-tw, top + tw * 0.5], [-tw, top], [0, top], 6);
+    tongue.push(...quadPts([0, top], [tw, top], [tw, top + tw * 0.5], 6).slice(1));
+    tongue.push([tw, reach - tw]);
+    for (let i = 1; i < 14; i++) { const a = i / 14 * Math.PI; tongue.push([Math.cos(a) * tw, reach - tw + Math.sin(a) * tw]); }
+    tongue.push([-tw, reach - tw]);
+  }
+  // /f/: the top teeth rest on the lower lip.
+  let bite = null;
+  if (P.bite > 0.02) {
+    const bw = we * (0.32 + 0.14 * P.bite), y1 = yBot + 15 * P.bite * k * sy;
+    const rc = Math.min(18, (y1 - yTop) * 0.45);  // soft corners and a slightly curved biting edge
+    bite = [[-bw, yTop - 2], [-bw, y1 - rc], ...quadPts([-bw, y1 - rc], [-bw, y1], [-bw + rc, y1], 5),
+      ...quadPts([-bw + rc, y1], [0, y1 + 8], [bw - rc, y1], 8).slice(1, -1),
+      [bw - rc, y1], ...quadPts([bw - rc, y1], [bw, y1], [bw, y1 - rc], 5), [bw, yTop - 2]];
+  }
+
+  const all = [...M.pts, ...(tongue || []), ...(bite || [])];
+  const dy = Math.min(eyeClearance(all, ox, cy, eyes, 22 + LW), 220);
   ctx.save();
-  ctx.translate(cx + P.mx * k * sx, cy);
-  const ttop = yTop + clamp(P.teethTop, 0, 1) * h * 0.5;
+  ctx.translate(ox, cy + dy);
   if (h > 1) {
     ctx.save();
     const inside = pen.fill(M.pts, 'mouth');
     ctx.clip(inside);
-    if (h > 24) pen.fill(ellipsePts(0, yBot - h * 0.16 - clamp(P.tongueUp, 0, 1) * h * 0.42, we * 0.3, h * 0.33, 32), 'tongue');
-    if (P.teethTop > 0.01) pen.fill(band(ttop, -1), 'teeth');
+    if (h > 24 && !tongue) {
+      // tongue: a soft dome on the floor of the mouth; it rises (and narrows) for /l/
+      const up = clamp(P.tongueUp, 0, 1);
+      const tTop = yBot - h * (0.34 + 0.4 * up);
+      pen.fill(domePts(we * (0.36 - 0.1 * up), yBot + 6, tTop), 'tongue');
+      pen.line([[0, tTop + h * 0.1], [0, tTop + h * (0.22 + 0.06 * up)]], false, LW * 0.35, 'tongueLine');
+    }
     if (P.teethBot > 0.01) pen.fill(band(yBot - clamp(P.teethBot, 0, 1) * h * 0.5, 1), 'teeth');
+    ctx.restore();
+  }
+  if (tongue) {
+    pen.fill(tongue, 'tongue');
+    pen.line([[0, yBot - 4], [0, yBot + (8 + 16 * P.tongueOut) * k * sy]], false, LW * 0.35, 'tongueLine');
+  }
+  if (h > 1 && P.teethTop > 0.01) {
+    ctx.save(); ctx.clip(toPath(M.pts));
+    pen.fill(band(ttop, -1), 'teeth');
     if (P.teethTop > 0.8 && P.teethBot > 0.8 && h > 8) pen.line(curve(ttop), false, LW * 0.35, 'divider');
     ctx.restore();
   }
+  if (bite) pen.fill(bite, 'teeth');
+
+  // Outlines: the lip line breaks where the tongue or teeth cross it.
+  ctx.save();
+  if (tongue) ctx.clip(outsideOf(tongue), 'evenodd');
+  if (bite) ctx.clip(outsideOf(bite), 'evenodd');
   pen.line(M.pts, true, LW * 0.95);
-  if (P.tongueOut > 0.02 && h > 6) {
-    // /th/: tongue tip slides out from under the top teeth, over the lower lip
-    ctx.save();
-    const cl = new Path2D(); cl.rect(-we, ttop + 2, we * 2, 600); ctx.clip(cl);
-    const ry = (24 + 22 * P.tongueOut) * k * sy;
-    const tip = ellipsePts(0, yBot + ry * 0.15, we * 0.21, ry, 32);
-    pen.fill(tip, 'tongue');
-    pen.line(tip, true, LW * 0.7);
-    pen.line([[0, yBot - ry * 0.3], [0, yBot + ry * 0.5]], false, LW * 0.35, 'tongueLine');
+  ctx.restore();
+  for (const part of [tongue, bite]) {
+    if (!part) continue;
+    ctx.save(); ctx.clip(outsideOf(M.pts), 'evenodd');
+    pen.line(part, true, LW * (part === bite ? 0.7 : 0.85));
     ctx.restore();
   }
-  if (P.bite > 0.02) {
-    // /f/: top teeth rest on the lower lip
-    const bw = we * 0.34, y0 = yTop - 4, y1 = yBot + 16 * P.bite * k * sy;
-    const t = [[-bw, y0], [-bw, y1 - 8], ...quadPts([-bw, y1 - 8], [-bw, y1], [-bw + 8, y1], 4),
-      [bw - 8, y1], ...quadPts([bw - 8, y1], [bw, y1], [bw, y1 - 8], 4), [bw, y0]];
-    pen.fill(t, 'teeth');
-    pen.line(t, true, LW * 0.6);
+  if (bite) {
+    // the lower lip tucked under the teeth
+    const y1 = yBot + 15 * P.bite * k * sy, bw = we * (0.32 + 0.14 * P.bite);
+    pen.line(quadPts([-bw * 0.8, y1 + 16], [0, y1 + 30], [bw * 0.8, y1 + 16], 10), false, LW * 0.5);
   }
   ctx.restore();
 }
@@ -657,8 +732,10 @@ function drawMibo(ctx, P, opts = {}) {
     pen.blush(bx, by - P.happy * 10, 78 * fsx, 42 * fsy, clamp(P.blush, 0, 1));
   }
   const r = FACE.eyeR0 * P.eyeScale;
+  const eyeZones = [];
   for (const [pt, wink, inner, side] of [[FACE.eyeL, P.winkL, 1, -1], [FACE.eyeR, P.winkR, -1, 1]]) {
     const [ex, ey] = feat(pt, 42, 30);
+    eyeZones.push({ x: ex, y: ey, rx: r * fsx, ry: r * fsy });
     drawEye(pen, ex, ey, r, fsx, fsy, {
       open: P.open * (1 - clamp(wink, 0, 1)), happy: clamp(P.happy, 0, 1), topLid: clamp(P.topLid, 0, 1),
       sparkle: P.sparkle, lookX: lx,
@@ -668,7 +745,7 @@ function drawMibo(ctx, P, opts = {}) {
   const [mx, my] = feat(FACE.mouth, 52, 32);
   const [msx, msy] = d.scaleAt(-450);
   const ms = opts.mouthScale || 1;
-  drawMouth(pen, mx, my, msx * ms, msy * ms, P);
+  drawMouth(pen, mx, my, msx * ms, msy * ms, P, eyeZones);
   ctx.restore();
 }
 
@@ -1102,6 +1179,6 @@ function drawFx(ctx, P, t, accent, opts = {}) {
   }
 }
 
-root.Mibo = { DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, drawPaper,
+root.Mibo = { _test: { mouthGeom, eyeClearance, bodyDeformer, FACE }, DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, drawPaper,
   textToVisemes, Puppet };
 })(typeof window !== 'undefined' ? window : globalThis);
