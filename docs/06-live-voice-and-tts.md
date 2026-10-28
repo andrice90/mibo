@@ -1,6 +1,6 @@
 # 06 — Live voice pivot & TTS discovery
 
-Status: Draft, 2026-10-28. Records the founder's pivot (PROJECT #45) and the TTS discovery that gates the MVP build. Pricing is from OpenRouter's live model list on 2026-10-28. Sound quality is **not yet measured**: the bake-off harness is built and tested but needs an OpenRouter inference key to run (see §5).
+Status: Draft, 2026-10-28. Records the founder's pivot (PROJECT #45) and the TTS discovery that gates the MVP build. Pricing is from OpenRouter's live model list on 2026-10-28. First bake-off results are in §5 (run 2026-10-28). Warmth on the talk lines still needs the founder's ear.
 
 ## 1. The pivot
 
@@ -67,7 +67,7 @@ Since no OpenRouter voice returns timing, Mibo's mouth is driven **from the audi
 
 The same analysis runs in the browser/app on the PCM as it arrives (Web Audio `AnalyserNode` or a few lines of JS FFT). It is prototyped in Python in `tools/tts_eval.py` (`analyze`, `mouth_track`) and unit-tested on synthetic sounds in `tests/test_tts_eval.py`.
 
-## 5. Bake-off harness (built, waiting on a key)
+## 5. Bake-off harness and first results
 
 `tools/tts_eval.py` sends 17 clips through 14 candidate voices:
 
@@ -77,25 +77,48 @@ The same analysis runs in the browser/app on the PCM as it arrives (Web Audio `A
 - Mibo modelling lines
 - a minimal pair, and a "live feedback" line
 
-For each clip it records time-to-first-byte (live latency), duration, real cost (from the generation record) and the acoustic verdict. The acoustic check flags *letter name instead of hiss*, *hiss too short* and *wrong place, e.g. /sh/ instead of /s/*. Vowels get a formant guess. An optional `--judge` pass asks an audio-input LLM for a narrow IPA transcription. It writes `eval/tts/out/index.html`, a listening page where every clip plays with **Mibo's mouth animated from that clip's audio**, so we judge sound and sync together.
+For each clip it records time-to-first-byte (live latency), duration, real cost (from the generation record, looked up after synthesis because the record lags the audio by several seconds) and the acoustic verdict. The acoustic check flags *letter name instead of hiss*, *hiss too short* and *wrong place, e.g. /sh/ instead of /s/*. Vowels get a formant guess. An optional `--judge` pass asks an audio-input LLM for a narrow IPA transcription. It writes `eval/tts/out/index.html`, a listening page where every clip plays with **Mibo's mouth animated from that clip's audio**, so we judge sound and sync together.
 
 ```sh
-OPENROUTER_LLM_API_KEY=sk-or-v1-... python3 tools/tts_eval.py            # all 14 candidates (~$0.30 total)
+OPENROUTER_LLM_API_KEY=sk-or-v1-... python3 tools/tts_eval.py            # all 14 candidates, ~$0.25 of TTS
 python3 tools/tts_eval.py --models gemini-3.8,kokoro --judge           # narrower, with IPA judge
 python3 -m unittest tests.test_tts_eval                                # checker self-test
 ```
 
-The key in the session environment is an OpenRouter **management** key. It can list models and create keys but gets `401` on inference, so it cannot run the bake-off.
+### 5.1 Results, 2026-10-28 (one take per clip, `--judge`)
 
-**Decision rule once it runs.** Pick the cheapest voice that:
+TTFB is the median over the clips, with 4 candidates running in parallel. $/min is the measured cost divided by the measured audio length. Hiss columns are the acoustic check: **P** = sustained hiss in the right place, **–** = flagged.
 
-1. sounds warm and clear on the talk lines (founder's ear)
-2. has a median TTFB under about 1.5 s
-3. passes the `/s/` and `/th/` hiss checks on at least some takes, so the bundled model-sound clips can come from the same voice
+| Voice | TTFB | $/min | /s/ | /z/ | /sh/ | /th/ | /f/ | Held vowels | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| eleven-flash-v2.5 · jessica | **0.44 s** | 0.034 | P | – | – | – | – | 3/5 | /th/ came out as [aː] |
+| aura-2 · thalia | 0.48 s | 0.021 | – | – | – | – | – | 0/5 | "ess" + short hiss |
+| grok-voice-tts-1.0 · eve | 0.49 s | 0.008 | P | – | P | – | – | 5/5 | /th/ came out as [tʰh] |
+| minimax-2.8-turbo · playful | 0.51 s | 0.015 | – | – | – | – | – | 4/5 | /s/ read as [ɛs ɛs ɛs…] |
+| orpheus-3b · tara | 0.58 s | 0.003 | – | – | P | – | – | 5/5 | Real /s/ and /θ/, held only ~0.3 s |
+| mai-voice-2.1-flash · harper | 0.59 s | 0.004 | P | P | – | – | – | 4/5 | /th/ came out as [fuː] |
+| kokoro-82m · sky | 0.86 s | 0.0003 | – | – | – | – | – | 4/5 | /s/ read as [ɛs]×7 |
+| kokoro-82m · heart | 1.06 s | 0.0004 | – | – | – | – | – | 0/5 | "ess-ess-ess" |
+| eleven-v3 · jessica | 1.64 s | 0.034 | P | – | – | **P** | – | 4/5 | Only voice with a clean isolated /θ/ |
+| gemini-3.1-flash-preview · puck | 1.88 s | 0.046 | P | – | – | – | P | 3/5 | /th/ came out as [tʰa] |
+| gemini-3.8-flash-lite · puck | 2.25 s | 0.003 | P | P | – | – | P | 4/5 | /th/ voiced [ðː]; said "shun" for *sun* in a line |
+| gemini-3.8-flash · puck | 2.44 s | 0.010 | P | P | P | – | – | 4/5 | /th/ came out as [f] |
+| gemini-3.8-flash · leda | 2.61 s | 0.012 | P | – | P | – | P | 5/5 | /th/ came out as [f] |
+| fish-s2.1-pro | 0.68 s | 0.059 | – | – | – | n/a | n/a | 1/5 | Run hit the account's credit limit; 9 clips missing |
 
-If no LLM voice passes item 3, generate the model-sound clips with Azure or Polly IPA, or record them, and keep the LLM voice for talk.
+What this shows:
 
-**Provisional pick before measurement:** `google/gemini-3.8-flash-tts`. It has the founder's prior success, `instructions` steering, a low price and 30 voices to cast Mibo from. `google/gemini-3.8-flash-lite-tts` is the latency/cost alternate, and Kokoro is the near-free floor.
+1. **No voice makes every teaching sound from bare text.** /s/ is fine on 8 of 14 voices. An isolated /θ/ works on only one (eleven-v3). The usual failures are the letter name ("ess", "tee-aitch"), /θ/ becoming [f], [ð] or [t], and a hiss that is real but under half a second.
+2. **Context helps /θ/.** Inside the modelling line "Thhhh... thumb!", most voices did produce a held [θːː], per the judge. So bundled model-sound clips should be generated as short phrases and trimmed, not from a bare "Thhhh."
+3. **Gemini is too slow for the live turn.** Every Gemini tier had a median TTFB of 1.9–2.6 s, against a 1.5 s budget. The provisional Gemini pick does not hold for talk segments.
+4. **Fast and cheap voices that hold /s/:** grok-voice eve (0.49 s, ~$0.008/min) and MAI Harper (0.59 s, ~$0.004/min). ElevenLabs Flash is the fastest but about 4× the price.
+5. **The LLM judge leans toward the intended text.** It wrote [sːːː] for Kokoro and Aura clips that are audibly "ess", because the prompt tells it what the text should be. Its "not clear" verdicts are useful, for example catching /θ/→[f], which the acoustic check cannot tell apart. Its "clear" verdicts are not reliable. It also cost about $6.50 for the 230 clips (~3¢ each), roughly 30× the TTS spend. Before trusting it, run it blind, without the intended text in the prompt.
+
+**Revised recommendation (pending the founder's listen):**
+
+- **Talk segments:** `x-ai/grok-voice-tts-1.0` (eve) or `microsoft/mai-voice-2.1-flash` (Harper), whichever sounds warmer. Both are well inside the latency budget at under 1¢ per minute.
+- **Model-sound segments:** generate offline in the chosen voice, as phrase takes with several retries, and keep the ones that pass both the acoustic check and the ear. If the chosen voice cannot produce /θ/ even in context, use `elevenlabs/eleven-v3` for that clip only, or Azure/Polly IPA, or a recording.
+- Gemini Flash stays an option for offline model-sound clips: good /s/, cheap, and latency doesn't matter there.
 
 ## 6. Live turn loop (MVP shape)
 
