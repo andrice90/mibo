@@ -883,11 +883,12 @@ class Puppet {
     const add = {};
     const plus = (k, v) => { add[k] = (add[k] || 0) + v; };
 
-    // script queue
+    // script queue (it also reports which mouth shape is targeted this frame)
+    this.mouthKey = null;
     this.runScript(dt, T, plus);
 
     // a held teaching mouth wins over everything else on the mouth
-    if (this.held) Object.assign(T, mouthOf(this.held));
+    if (this.held) { Object.assign(T, mouthOf(this.held)); this.mouthKey = this.held; }
     const watching = (this.held && this.heldWatch) || (this.seg && this.seg.watch);
     this.watch = lerp(this.watch, watching ? 1 : 0, 1 - Math.exp(-dt * 6));
     if (watching) {
@@ -1007,7 +1008,7 @@ class Puppet {
       while (sp.idx < sp.list.length && g.t > sp.at + sp.list[sp.idx].d) { sp.at += sp.list[sp.idx].d; sp.idx++; sp.bumped = false; }
       if (sp.idx >= sp.list.length) { this.seg = null; this.speech = null; return; }
       const cur = sp.list[sp.idx];
-      Object.assign(T, mouthOf(cur.v));
+      Object.assign(T, mouthOf(cur.v)); this.mouthKey = cur.v;
       T.smile = T.smile + (MOODS[this.mood].smile || 0.4) * 0.25;
       if (cur.hold && g.watchHolds !== false) { g.watch = true; } else if (!g.watchAll) { g.watch = false; }
       if (g.watchAll) g.watch = true;
@@ -1021,7 +1022,7 @@ class Puppet {
       if (/\?/.test(g.say)) { plus('tilt', 5); plus('browRaise', 0.25); }
       this.caption(g.say, cur.i);
     } else if (g.model) {
-      Object.assign(T, mouthOf(g.model));
+      Object.assign(T, mouthOf(g.model)); this.mouthKey = g.model;
       g.watch = g.watch !== false;
       if (g.t > (g.hold || 1.5)) this.seg = null;
     } else if (g.t >= (g.wait || 0)) {
@@ -1179,6 +1180,6 @@ function drawFx(ctx, P, t, accent, opts = {}) {
   }
 }
 
-root.Mibo = { _test: { mouthGeom, eyeClearance, bodyDeformer, FACE }, DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, drawPaper,
+root.Mibo = { mouthOf, _test: { mouthGeom, eyeClearance, bodyDeformer, FACE }, DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, drawPaper,
   textToVisemes, Puppet };
 })(typeof window !== 'undefined' ? window : globalThis);

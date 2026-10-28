@@ -209,12 +209,17 @@
   const ORIGINAL = JSON.parse(JSON.stringify(M.VISEMES));
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const settings = { energy: reduce ? 0.25 : 0.7, bounce: 0.55, mouthScale: 1.15, outline: 13, talkSpeed: 1, brows: true,
-    fps: 12, boilFps: 3, boil: 1, bleed: 1, paper: 0.6, view: 'both', swap: false };
+    fps: 4, boilFps: 3, boil: 1, bleed: 1, paper: 0.6, view: 'both', swap: false };
 
   // ---- remembered tuning (per viewer, optional)
-  const KEY = 'mibo-style-ab-v1';
+  const KEY = 'mibo-style-ab-v2';
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    let saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!saved) {
+      // carry tuning over from v1, but take the new 4 fps default for hand-drawn motion
+      saved = JSON.parse(localStorage.getItem('mibo-style-ab-v1') || 'null');
+      if (saved && saved.settings) delete saved.settings.fps;
+    }
     if (saved) { Object.assign(settings, saved.settings || {}); for (const k in saved.visemes || {}) Object.assign(M.VISEMES[k], saved.visemes[k]); }
   } catch (e) {}
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify({ settings, visemes: M.VISEMES })); } catch (e) {} };
@@ -354,7 +359,7 @@
   };
 
   // ---- hand-drawn sliders
-  const SK = [['fps', 'Motion fps', 6, 60, 1], ['boilFps', 'Boil fps', 1, 8, 0.5], ['boil', 'Line boil', 0, 2, 0.05], ['bleed', 'Colour offset', 0, 2, 0.05], ['paper', 'Paper grain', 0, 1, 0.05]];
+  const SK = [['fps', 'Motion fps', 2, 60, 1], ['boilFps', 'Boil fps', 1, 8, 0.5], ['boil', 'Line boil', 0, 2, 0.05], ['bleed', 'Colour offset', 0, 2, 0.05], ['paper', 'Paper grain', 0, 1, 0.05]];
   const skHost = document.getElementById('sketchSliders');
   for (const [k, label, a, b, st] of SK) slider(skHost, 's-' + k, label, a, b, st, settings[k], v => { settings[k] = v; persist(); labelStages(); });
 
@@ -440,7 +445,8 @@
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { accentCol = accent(); });
   new MutationObserver(() => { accentCol = accent(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  function render(s, P, seed) {
+  function render(s, snap, seed) {
+    const { P } = snap;
     const { ctx, W, H } = s;
     if (!W || !H) return;
     const sc = Math.min(W / 1500, H / 1450) * P.camZoom;
@@ -453,32 +459,46 @@
     const o = { style: s.style, outline: settings.outline, brows: settings.brows, mouthScale: settings.mouthScale,
       seed, boil: settings.boil, bleed: settings.bleed };
     M.drawMibo(ctx, P, o);
-    M.drawFx(ctx, P, mibo.t, sketch ? '#2c7a5c' : accentCol, o);
-    M.drawParticles(ctx, mibo.particles, o);
-    if (mibo.watch > 0.02) {
+    M.drawFx(ctx, P, snap.t, sketch ? '#2c7a5c' : accentCol, o);
+    M.drawParticles(ctx, snap.parts, o);
+    if (snap.watch > 0.02) {
       // soft spotlight on the mouth during "watch me"
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
-      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${(sketch ? 0.16 : 0.28) * mibo.watch})`);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${(sketch ? 0.16 : 0.28) * snap.watch})`);
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     }
   }
 
-  // B samples the same puppet but only redraws at its own motion frame rate.
-  // The line boil runs on a separate, slower clock: it steps through three
-  // wobble variants a few times a second, so lines shimmer even when Mibo is still.
-  let last = performance.now(), acc = 1, boilAcc = 0, boilFrame = 0;
+  // B holds each drawing for 1/fps seconds, like hand animation on threes or
+  // fours: body, mouth, eyes and particles all step together. Its lines boil on
+  // a separate clock, but a boil redraw reuses the held pose, so it never adds
+  // motion frames. For lip sync, each held drawing shows the mouth shape that
+  // was targeted longest during its window (how animators pick key mouths),
+  // rather than whatever in-between shape the springs happen to be at.
+  let last = performance.now(), acc = 1, boilAcc = 0, boilFrame = 0, mouthTime = {};
+  const live = () => ({ P: mibo.P, parts: mibo.particles, t: mibo.t, watch: mibo.watch });
+  function hold() {
+    const P = { ...mibo.P };
+    let top = null;
+    for (const k in mouthTime) if (!top || mouthTime[k] > mouthTime[top]) top = k;
+    if (top) {
+      const m = M.mouthOf(top);
+      for (const k of M.MOUTH_KEYS) P[k] = m[k];
+    }
+    mouthTime = {};
+    return { P, parts: mibo.particles.map(p => ({ ...p })), t: mibo.t, watch: mibo.watch };
+  }
   function frame(now) {
     const dt = (now - last) / 1000; last = now;
     mibo.update(dt);
+    if (mibo.mouthKey) mouthTime[mibo.mouthKey] = (mouthTime[mibo.mouthKey] || 0) + dt * (mibo.mouthKey === 'gap' ? 0.4 : 1);
     const [A, B] = stages;
-    if (!A.wrap.hidden) render(A, mibo.P, 0);
+    if (!A.wrap.hidden) render(A, live(), 0);
     acc += dt; boilAcc += dt;
     if (boilAcc >= 1 / settings.boilFps) { boilAcc %= 1 / settings.boilFps; boilFrame = (boilFrame + 1) % 3; B.dirty = true; }
-    if (!B.wrap.hidden && (acc >= 1 / settings.fps || B.dirty)) {
-      acc = acc >= 1 / settings.fps ? acc % (1 / settings.fps) : acc;
-      render(B, mibo.P, boilFrame); B.dirty = false;
-    }
+    if (acc >= 1 / settings.fps || !B.snap) { acc %= 1 / settings.fps; B.snap = hold(); B.dirty = true; }
+    if (!B.wrap.hidden && B.dirty) { render(B, B.snap, boilFrame); B.dirty = false; }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
