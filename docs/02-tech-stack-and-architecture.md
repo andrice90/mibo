@@ -5,7 +5,7 @@ Status: Draft. Decisions cite PROJECT.md by number. iOS only (PROJECT #9), no Ma
 ## 1. Stack summary
 
 - **App:** Expo (React Native) + TypeScript, EAS development build (not Expo Go — see §3), targeting iPhone + iPad, US English locale `en-US`.
-- **Character:** Rive (`@rive-app/react-native`) viseme state machine (see `docs/03`).
+- **Character:** code-drawn puppet Mibo (PROJECT #46), ported from `prototypes/mibo-puppet/mibo-puppet.js` to React Native Skia (`@shopify/react-native-skia`) + Reanimated. Rive is parked (see `docs/03`).
 - **Speech (on-device only, PROJECT #10):** candidates in §4; spike decides.
 - **LLM:** Meta Model API (Muse Spark series) via Cloudflare Worker; Claude API fallback behind the same adapter (PROJECT #26, #32).
 - **Storage:** on-device (expo-sqlite / MMKV-class) + optional iCloud sync post-hackathon (PROJECT #17). No mibo-operated child-data backend.
