@@ -37,6 +37,7 @@ import time
 import urllib.error
 import urllib.request
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -176,7 +177,7 @@ def write_wav(path: Path, x: np.ndarray, sr: int) -> None:
 def generation_cost(gen_id: str | None, key: str) -> float | None:
     if not gen_id:
         return None
-    for _ in range(3):
+    for _ in range(6):
         try:
             req = urllib.request.Request(
                 f"{API}/generation?id={gen_id}",
@@ -184,7 +185,7 @@ def generation_cost(gen_id: str | None, key: str) -> float | None:
             with urllib.request.urlopen(req, timeout=20) as r:
                 return json.load(r)["data"].get("total_cost")
         except Exception:
-            time.sleep(1.5)
+            time.sleep(3)
     return None
 
 
@@ -385,6 +386,39 @@ def judge(model: str, key: str, wav: bytes, text: str) -> dict:
 
 # ---------------------------------------------------------------- report
 
+def eval_candidate(cand: Candidate, clips: list[Clip], key: str, args) -> tuple[dict, list[str]]:
+    """Synthesize, check and (optionally) judge every clip for one voice."""
+    log = [f"\n== {cand.key}"]
+    cdir = OUT / cand.key
+    cdir.mkdir(exist_ok=True)
+    entry = {**cand.__dict__, "results": {}}
+    for clip in clips:
+        r = synth(cand, clip.text, key)
+        if not r["ok"]:
+            log.append(f"  {clip.id:14s} ERROR {r['error'][:120]}")
+            entry["results"][clip.id] = {"error": r["error"]}
+            if r["error"].startswith(("400", "401", "402", "404")) and clip is clips[0]:
+                break  # model unusable as configured; skip the rest
+            continue
+        x, sr = decode(r["bytes"], r["content_type"], cand.fmt)
+        wav_path = cdir / f"{clip.id}.wav"
+        write_wav(wav_path, x, sr)
+        frames = analyze(x, sr)
+        res = {"file": f"{cand.key}/{clip.id}.wav",
+               "duration_s": round(len(x) / sr, 2),
+               "ttfb_s": round(r["ttfb"], 2), "total_s": round(r["total"], 2),
+               "gen_id": r["gen_id"], **check(clip, frames),
+               "track": mouth_track(frames)}
+        if args.judge:
+            res["judge"] = judge(args.judge_model, key, wav_path.read_bytes(), clip.text)
+        entry["results"][clip.id] = res
+        mark = "PASS" if res["pass"] else "FLAG"
+        log.append(f"  {clip.id:14s} {mark} {res['duration_s']:5.2f}s "
+                   f"ttfb {res['ttfb_s']:.2f}s  {res['why']}")
+    print("\n".join(log), flush=True)
+    return entry, log
+
+
 def run(args) -> int:
     cands = [c for c in CANDIDATES
              if not args.models or any(m in c.key for m in args.models.split(","))]
@@ -406,34 +440,19 @@ def run(args) -> int:
     shutil.copytree(CHARACTER, OUT / "character", dirs_exist_ok=True)
     report = {"clips": [c.__dict__ for c in clips], "style": MIBO_STYLE,
               "candidates": []}
-    for cand in cands:
-        print(f"\n== {cand.key}")
-        cdir = OUT / cand.key
-        cdir.mkdir(exist_ok=True)
-        entry = {**cand.__dict__, "results": {}}
-        for clip in clips:
-            r = synth(cand, clip.text, key)
-            if not r["ok"]:
-                print(f"  {clip.id:14s} ERROR {r['error'][:120]}")
-                entry["results"][clip.id] = {"error": r["error"]}
-                if r["error"].startswith(("400", "401", "402", "404")) and clip is clips[0]:
-                    break  # model unusable as configured; skip the rest
-                continue
-            x, sr = decode(r["bytes"], r["content_type"], cand.fmt)
-            wav_path = cdir / f"{clip.id}.wav"
-            write_wav(wav_path, x, sr)
-            frames = analyze(x, sr)
-            res = {"file": f"{cand.key}/{clip.id}.wav",
-                   "duration_s": round(len(x) / sr, 2),
-                   "ttfb_s": round(r["ttfb"], 2), "total_s": round(r["total"], 2),
-                   "cost_usd": generation_cost(r["gen_id"], key),
-                   **check(clip, frames), "track": mouth_track(frames)}
-            if args.judge:
-                res["judge"] = judge(args.judge_model, key, wav_path.read_bytes(), clip.text)
-            entry["results"][clip.id] = res
-            mark = "PASS" if res["pass"] else "FLAG"
-            print(f"  {clip.id:14s} {mark} {res['duration_s']:5.2f}s "
-                  f"ttfb {res['ttfb_s']:.2f}s  {res['why']}")
+    # Candidates hit different providers, so running a few at once barely
+    # moves each one's TTFB but cuts wall time several-fold.
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        entries = list(pool.map(lambda c: eval_candidate(c, clips, key, args)[0], cands))
+
+    # Generation records appear several seconds after the audio, so costs are
+    # looked up once synthesis is over rather than per clip.
+    results = [v for e in entries for v in e["results"].values() if v.get("gen_id")]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for v, cost in zip(results, pool.map(
+                lambda v: generation_cost(v["gen_id"], key), results)):
+            v["cost_usd"] = cost
+    for entry in entries:
         ok = [v for v in entry["results"].values() if "pass" in v]
         entry["fricative_pass"] = sum(
             v["pass"] for k, v in entry["results"].items() if k.startswith("iso-") and "pass" in v)
@@ -441,7 +460,7 @@ def run(args) -> int:
         costs = [v["cost_usd"] for v in ok if v.get("cost_usd") is not None]
         entry["cost_usd"] = round(sum(costs), 5) if costs else None
         report["candidates"].append(entry)
-        (OUT / "report.json").write_text(json.dumps(report, indent=1))
+    (OUT / "report.json").write_text(json.dumps(report, indent=1))
     html = (ROOT / "eval" / "tts" / "listen.html").read_text()
     (OUT / "index.html").write_text(
         html.replace("/*REPORT*/null", json.dumps(report, separators=(",", ":"))))
@@ -456,6 +475,8 @@ def main() -> int:
     p.add_argument("--judge", action="store_true",
                    help="also ask an audio LLM for an IPA transcription")
     p.add_argument("--judge-model", default="google/gemini-3.5-flash")
+    p.add_argument("--jobs", type=int, default=4,
+                   help="candidates to run in parallel")
     p.add_argument("--dry-run", action="store_true")
     return run(p.parse_args())
 
