@@ -48,6 +48,19 @@ const ARMS = {
 
 // ------------------------------------------------------------------ presets
 
+// The chosen look (founder, 2026-10-28; PROJECT #46). Hand-drawn style with
+// body poses held at 6 fps, the mouth swapping shapes at 24 fps and lines
+// boiling at 3 fps. These stay tunable: the lab exposes them as sliders and
+// the app should read them from here rather than hard-coding them.
+const STYLE = {
+  style: 'sketch',
+  motionFps: 6,   // body, eyes, arms, particles
+  mouthFps: 24,   // mouth shape swaps over the held body
+  boilFps: 3,     // line wobble variants
+  boil: 1, bleed: 1, paper: 0.6,
+};
+
+
 const DEFAULTS = {
   x: 0, y: 0, sy: 1, spread: 0, lean: 0, jelly: 0, tilt: 0,
   camZoom: 1, camX: 0, camY: -540,
@@ -1180,6 +1193,6 @@ function drawFx(ctx, P, t, accent, opts = {}) {
   }
 }
 
-root.Mibo = { mouthOf, _test: { mouthGeom, eyeClearance, bodyDeformer, FACE }, DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, drawPaper,
+root.Mibo = { STYLE, mouthOf, _test: { mouthGeom, eyeClearance, bodyDeformer, FACE }, DEFAULTS, VISEMES, TEACHING, MOODS, ACTIONS, MOUTH_KEYS, drawMibo, drawParticles, drawFx, drawPaper,
   textToVisemes, Puppet };
 })(typeof window !== 'undefined' ? window : globalThis);

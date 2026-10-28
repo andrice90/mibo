@@ -1,6 +1,14 @@
 # 03 — Character, voice & animation
 
-Status: Draft, updated by PROJECT #44. Mibo is the founder's mint round blob from `assets/mibo-wave.gif`, a **wise teacher** (PROJECT #25), voiced by a **licensed TTS character voice** (PROJECT #13, #37). Animation is **2D sprite poses at 3–4 fps**, not Rive/3D: body poses extracted from the GIF plus drawn vowel mouth shapes, in `assets/character/` (built by `tools/build_mibo_poses.py`, base upscaled 3x before mouths are drawn). The Rive viseme design below is parked as a post-hackathon option; its phoneme-timing tracks become pose-swap tracks.
+Status: Draft, updated by PROJECT #46. Mibo is the founder's mint round blob from `assets/mibo-wave.gif`, a **wise teacher** (PROJECT #25), voiced by a **licensed TTS character voice** (PROJECT #13, #37). **Current direction (#46):** a code-drawn puppet in a hand-drawn watercolour and coloured-pencil style, with motion held like hand animation (body 6 fps, mouth 24 fps, line boil 3 fps), prototyped in `prototypes/mibo-puppet/` (see §0). The earlier sprite poses in `assets/character/` (PROJECT #44) remain as reference art. The Rive design in §2 is parked.
+
+## 0. Puppet Mibo (current)
+
+- **Rig:** one flat parameter set drives a deformable jelly body, eyes (blinks, lids, happy arcs), floating brows, a parametric teaching mouth (s, th, sh, f, m/b/p, l, vowels) and two arms that grow out of the body. Mibo can turn around so the other arm comes to the front. The mouth stays clear of the eyes by sliding down like a dropping jaw.
+- **Life:** springs for squash and stretch, idle breathing, blinks, glances and fidgets, moods (happy, listening, thinking, surprised, gentle, silly), one-shot moves (hop, turn, wave, celebrate, wiggle, boop) and a "watch my mouth" zoom for teaching moments.
+- **Look:** watercolour washes with pooled edges and paper granulation, coloured-pencil outlines, pencil hatching, slightly offset colour. No canvas filters (iOS Safari lacks them); each step maps to Skia path effects and shaders.
+- **Timing (tunable, `Mibo.STYLE`):** body poses held at 6 fps; the mouth swaps shapes at 24 fps, each frame showing the shape targeted longest in its window; lines boil at 3 fps and a boil redraw never adds motion.
+- **Lip sync:** today a rough text-to-mouth-shape timeline stands in for audio. With live TTS the same mouth track comes from the audio (`docs/06` §4).
 
 ## 1. Character design brief (for generation)
 
