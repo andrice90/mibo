@@ -4,7 +4,7 @@ Written 2026-10-28 at the end of a cloud session, for the next session (one with
 
 ## Where the work is
 
-- **Branch:** `claude/tts-eval-judge-ig4j9t`, pushed, 14 commits ahead of `main`. No pull request yet. Either keep working on this branch or open a PR into `main` first.
+- **Branch:** everything is merged into `main` (from `claude/tts-eval-judge-ig4j9t`). Start new work from `main`.
 - **Hackathon deadline:** submit by Wed Nov 4, 9:00 PM ET (PROJECT #29).
 - There is no `app/` folder yet. The Expo app has not been scaffolded.
 
@@ -38,8 +38,10 @@ Written 2026-10-28 at the end of a cloud session, for the next session (one with
 
 ### Live pages (private claude.ai artifacts, owner-only until shared)
 
-- Puppet lab: https://claude.ai/artifact/PwZby3a2fYUwLHQgojPQwf (source: `prototypes/mibo-puppet/`).
-- Voice bake-off listening page: https://claude.ai/artifact/22YqYEpaHxaLwNefHvn1Ha. Its audio exists only in the artifact and the old container. Re-run `tools/tts_eval.py` to regenerate it locally.
+Both web demos are also in the repo and open straight from disk:
+
+- Puppet lab: `prototypes/mibo-puppet/index.html`, also at https://claude.ai/artifact/PwZby3a2fYUwLHQgojPQwf.
+- Voice bake-off listening page: `prototypes/voice-bakeoff/index.html`, with all 228 clips as MP3, also at https://claude.ai/artifact/22YqYEpaHxaLwNefHvn1Ha.
 
 ## Next: Mibo speaks with Leda, in the app
 
