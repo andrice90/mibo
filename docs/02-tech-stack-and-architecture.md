@@ -41,6 +41,8 @@ Rules that follow from the diagram:
 
 ## 3. Why a development build, not Expo Go
 
+**Update 2026-10-28 (PROJECT #47):** the MVP runs in Expo Go after all. Skia, Reanimated and expo-audio ship in Expo Go, and the grown-up's tap stands in for the recogniser. The points below still apply once an on-device recogniser is added.
+
 Rive's React Native runtime "contains custom native code, [is] not compatible with Expo Go" and requires a development build (Rive Expo guide). The on-device speech options in §4 have the same property. Consequences:
 
 - Day-1 setup: `expo-dev-client`, EAS iOS dev profile, install on the founder's iPhone/iPad via TestFlight/internal distribution.
