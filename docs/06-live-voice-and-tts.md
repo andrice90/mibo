@@ -67,6 +67,14 @@ Since no OpenRouter voice returns timing, Mibo's mouth is driven **from the audi
 
 The same analysis runs in the browser/app on the PCM as it arrives (Web Audio `AnalyserNode` or a few lines of JS FFT). It is prototyped in Python in `tools/tts_eval.py` (`analyze`, `mouth_track`) and unit-tested on synthetic sounds in `tests/test_tts_eval.py`.
 
+**As built (2026-10-28): forced alignment replaced audio-only lip sync.**
+- **Why:** on the phone, audio-only frames showed only 2–3 mouth shapes, because Leda's formants defeat the vowel guess, and those shapes flickered.
+- **How:** `app/src/voice/aligner.ts` takes the phonemes from the text (CMUdict, `g2p.ts`) and finds their timing in the audio. It uses a 3-state-per-phoneme HMM over MFCC features with optional pauses between words.
+- **Training:** the model is trained on Leda's own voice: about 5 minutes over 70 lines (`scripts/train-aligner.ts`).
+- **Output:** phonemes map to 20 of the puppet's mouth shapes; `n`, `ih`, `uh` and `w` were added to its `VISEMES`.
+- **Where it runs:** on the server for live lines and in the clip script for bundled ones.
+- **Teaching holds:** "Sssss" and "Thhhh" keep their authored pose and the zoom-in.
+
 ## 5. Bake-off harness and first results
 
 `tools/tts_eval.py` sends 17 clips through 14 candidate voices:
@@ -128,6 +136,14 @@ Two known gaps, and how the design covers them:
    - Bundle the most common lines (greetings, "your turn", praise variants) as pre-generated Leda audio, so only truly reactive lines go live.
    - Re-measure TTFB in the app with streaming playback. If it is still above about 3 s at the turn level, the fast voices from §5.1 remain the fallback for talk only.
 2. **Teaching sounds.** In single bare-text takes Leda held `/s/`, `/sh/`, `/f/` and the vowels, but said `/θ/` as [f] and `/z/` as a letter name. Model-sound clips are generated offline anyway, so: several takes per sound, phrase takes ("Thhhh... thumb!", where Leda produced a held [θːː]) trimmed to the hiss, and keep only clips that pass the acoustic check and the founder's ear. If `/θ/` still fails, record that one clip or use an IPA-capable engine for it.
+
+**Latency, as built (2026-10-28):** measured turns are LLM 1.0–1.8 s plus TTS 2–4 s. These mitigations are in the app:
+- **Prefetch:** both likely replies (got / tricky) are written and spoken while the child has a go, so the right one is usually ready when the try ends.
+- **Sentence splitting:** each reply is synthesised sentence by sentence, in parallel.
+- **Quick reactions:** a bundled one ("Yay!", "Ooh!", "Hmm!", or the child's name line) plays the moment the try ends.
+- **Preloading:** all bundled clips go to the phone before the lesson, trimmed of dead air.
+
+Muse Spark needs `max_tokens` well above the line length: it reasons first, and a 400-token limit cut about a quarter of lines off mid-JSON.
 
 ## 6. Live turn loop (MVP shape)
 

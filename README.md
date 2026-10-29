@@ -23,14 +23,23 @@ mibo is an **educational practice companion**. It does not diagnose, it does not
 
 ## Privacy by design
 
-- **A child's voice never leaves the phone.** All listening and scoring happens on the device.
-- Mibo replies live: the words the recogniser heard (text, never audio) and the lesson context go to an AI model that writes Mibo's next line, which is spoken with text-to-speech. No name, no audio, no recordings stored on a server.
+- **A child's voice never leaves the phone.** All listening and scoring happens on the device; each try is checked there and deleted at once.
+- Mibo replies live: lesson state only (the target word, how the try sounded, the attempt number; never audio) goes to an AI model that writes Mibo's next line, spoken with text-to-speech. Nothing is stored on a server.
+- An optional first name, typed by the grown-up, goes only to the voice service to make four greeting lines, and is otherwise kept on the phone.
 - An adult supervises every session. mibo says so before each one, and says that Mibo's replies are AI-generated.
 - No ads. No selling data. Purchases, settings, and consent live behind a parental gate.
 
 ## Status
 
 mibo is being built solo for the **Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026)**, Indie Developer track, *Build for Your World* theme. The hackathon deliverable is one polished vertical slice: the `/s/` sound, end to end: assessment, lesson, on-device scoring, and a parent plan generated via the Meta Model API through a stateless proxy. Everything else is a staged roadmap, not a promise for Nov 4.
+
+**Now (2026-10-28):** Lesson 1 (the S and TH sounds) runs end to end on iPhone and iPad in Expo Go, and has had its first real family test. It includes:
+- the hand-drawn puppet Mibo with lip sync to his own voice
+- listening on the device, with a sound check that tells S from TH, SH and T
+- live, encouraging replies written by Muse Spark (Meta Model API) and spoken by Gemini TTS
+- a lesson list with resume, optional name personalisation, and the grown-up's ◀ ▶ arrows as a fallback
+
+See [`app/README.md`](app/README.md) to run it and [HANDOFF.md](HANDOFF.md) for the current state.
 
 - Decisions: [PROJECT.md](PROJECT.md)
 - Research & curriculum: [docs/01-research-and-curriculum.md](docs/01-research-and-curriculum.md)
@@ -42,6 +51,12 @@ mibo is being built solo for the **Meta Global AI Developer Hackathon (Oct 26 �
 
 ## Tech at a glance
 
-Expo / React Native (TypeScript) iOS app with an EAS development build · Rive character with viseme mouth shapes · live text-to-speech for Mibo's replies (vendor picked by the bake-off in [docs/06](docs/06-live-voice-and-tts.md)), with pre-checked bundled clips for the teaching sounds · on-device speech recognition and scoring (no audio off-device) · Meta Model API (Muse Spark) via a stateless Cloudflare Worker for parent-facing plan personalisation, Claude API as fallback · on-device storage with optional iCloud sync.
+- **App:** Expo SDK 58 / React Native (TypeScript), run in Expo Go today. An EAS TestFlight build comes later, for on-device speech-to-text.
+- **Mibo:** a code-drawn hand-drawn puppet on React Native Skia, shared with the browser lab.
+- **Lip sync:** a small forced aligner (CMUdict phonemes, MFCC HMM trained on Mibo's voice).
+- **Voice:** Gemini 3.8 Flash TTS (voice Leda) via OpenRouter, with pre-checked bundled clips for the teaching sounds.
+- **Listening:** an on-device acoustic sound check; no audio leaves the device.
+- **Live replies:** Meta Model API (Muse Spark 1.3), with keys held in Expo API routes.
+- **Storage:** on the device only.
 
 Built by a solo developer with Muse (Wonder + Spark). US English first.

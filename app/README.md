@@ -1,6 +1,6 @@
 # Mibo app (Expo Go)
 
-Lesson 1, the snake sound /s/ and the tongue sound /θ/, with the hand-drawn puppet Mibo speaking in Leda's voice. Runs in **Expo Go** on an iPhone (SDK 58), no native build.
+Lesson 1, the snake sound /s/ and the tongue sound /θ/, with the hand-drawn puppet Mibo speaking in Leda's voice. Runs in **Expo Go** on iPhone and iPad (SDK 58), no native build.
 
 ## Run it on your phone
 
@@ -16,11 +16,16 @@ To check it on a desktop browser: `npm run web:setup` once (copies CanvasKit), t
 
 ## How it fits together
 
-- `src/app/index.tsx`: the grown-up screen shown before every session (supervision, not a therapist, AI replies).
-- `src/app/lesson.tsx`: Mibo, captions, and the grown-up's buttons ("Got it" / "Still tricky" / "Skip"). There is no speech recogniser in Expo Go, so the grown-up's tap is the score (docs/02 §7).
+- `src/app/index.tsx`: home, the lesson list (`src/lesson/lessons.ts`), with Continue / Start over from saved progress (`src/lesson/progress.ts`).
+- `src/app/welcome.tsx`: before each lesson. It has:
+  - the optional name step, with saved names as chips (`src/lesson/name.ts`, `/api/name`)
+  - Mibo's intro
+  - the grown-up checklist (supervision, not a therapist, AI replies, listening on the phone)
+- `src/app/lesson.tsx`: Mibo, captions, and the grown-up's ◀ ▶ arrows, always on screen.
+- `src/voice/listen.ts` + `src/voice/judge.ts`: after "your turn", Mibo listens on the phone (audio kept in memory only, then dropped) and checks the hiss: s, th, sh or a stopped t. No speech-to-text, which would hide a lisp. Calibrate with `npx tsx scripts/judge-test.ts --gen`.
 - `src/lesson/content.ts`: the lesson steps and every line Mibo says.
-- `src/lesson/useLesson.ts`: runs the lesson. While the child has a go, it already asks for both possible replies, so the right one is ready when the grown-up taps.
-- `src/app/api/reply+api.ts`: the live turn. It sends lesson state only (target word, tap, attempt number, never audio or names) to Muse Spark, which writes one checked line. Leda speaks it sentence by sentence. Anything slow or rejected falls back to a bundled line.
+- `src/lesson/useLesson.ts`: runs the lesson and saves its place. While the child has a go, it already asks for both possible replies, so the right one is ready when the try ends.
+- `src/app/api/reply+api.ts`: the live turn. It sends lesson state only (target word, how the try sounded, attempt number, never audio or names) to Muse Spark, which writes one checked line. Leda speaks it sentence by sentence. Anything slow or rejected falls back to a bundled line.
 - `src/puppet/`: draws `prototypes/mibo-puppet/mibo-puppet.js` (the same file as the browser lab) through a small Canvas2D-on-Skia shim, with the lab's three clocks: body 6 fps, mouth 24 fps, line boil 3 fps.
 - `src/voice/aligner.ts`: lip sync. Gemini TTS returns no timings, so a small forced aligner finds them.
   - Phonemes come from the CMU dictionary (`src/voice/g2p.ts`).

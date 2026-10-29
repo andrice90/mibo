@@ -2,6 +2,19 @@
 
 Status: Draft. Decisions cite PROJECT.md by number. iOS only (PROJECT #9), no Mac locally — all builds are cloud builds.
 
+## 0. As built (2026-10-28)
+
+The MVP in `app/` departs from the plan below in four places. Each is recorded in PROJECT #47–#49.
+
+- **Runtime:** Expo Go (SDK 58), not a development build, for now. Skia, Reanimated and expo-audio all ship in Expo Go. A TestFlight build comes later, for speech-to-text (§4).
+- **Hearing:** no speech recogniser yet. `app/src/voice/listen.ts` records each try with expo-audio's recorder. `judge.ts` then classifies the opening hiss of each word (s / th / sh / stop) on the device and deletes the recording. The grown-up's ◀ ▶ arrows are the fallback.
+  - Do not use expo-audio's live `AudioStream` for this: on iOS it switches the session to record-only and never restores it, which silences playback.
+- **LLM and voice keys:** the keys live in Expo Router API routes (`app/src/app/api/`), not a Cloudflare Worker.
+  - Replies are written by Muse Spark 1.3 called directly on `api.meta.ai`.
+  - TTS is Gemini via OpenRouter.
+  - The routes run in the dev server today. EAS Hosting (Cloudflare-based) is the deploy path, and needs an app token first.
+- **Storage:** small JSON files in the app's documents folder (lesson progress, learned names and their clips). No server-side child data.
+
 ## 1. Stack summary
 
 - **App:** Expo (React Native) + TypeScript, EAS development build (not Expo Go — see §3), targeting iPhone + iPad, US English locale `en-US`.
@@ -55,6 +68,13 @@ Hard rule: audio never leaves the device (PROJECT #10). Both leading options com
 - **Apple Speech (iOS 26 `SpeechAnalyzer`/`DictationTranscriber`; legacy `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true`):** free, on-device, streaming, short-utterance support. Risks: tuned for typical adult/older-child speech; expect errors on 4–7 and atypical speech; word-level transcripts only. Check minimum iOS against the founder's devices before committing to the iOS 26 APIs vs the legacy recogniser.
 - **WhisperKit (Argmax, MIT, CoreML):** open-source Whisper on Apple Silicon, iOS 17+, fully on-device. Risks: model download size, latency on older devices, Whisper's known tendency to "correct" mispronunciations toward the likely word (bad for scoring a lisp — it may hear `sun` when the child said `tun`). Must be tested adversarially on mispronounced targets, not just clean speech.
 - **Phoneme-level (aim, not v1 gate):** no compliant off-the-shelf iOS SDK was found in this research pass. Treat as a time-boxed spike: forced-alignment / small CoreML phoneme classifier experiments on-device. Exit criterion: reliable `/s/` vs `/t/`-substitution detection on consented test recordings; otherwise v1 ships word-level + parent override (already designed, PROJECT #6).
+
+**Update 2026-10-28 (founder):** speech-to-text will come in an EAS TestFlight build with `expo-speech-recognition`. Settings:
+- `requiresOnDeviceRecognition: true`, so no audio goes off the device.
+- `contextualStrings` set to the target word.
+- `setCategoryIOS` playAndRecord with `defaultToSpeaker`.
+
+The recogniser finds the word and when it was said; the acoustic check (`judgeTry`) then grades the target sound inside that word. A recogniser alone would hear *thun* as *sun*. Cloud speech-to-text is ruled out.
 
 **Spike plan (2 days max, early):** one harness screen that records prompts, runs both recognisers, and logs heard-as vs target for: founder adult voice, founder's 3-year-old (PROJECT #33), deliberately mispronounced targets. Decision rule: pick the recogniser with the lowest false-accept rate on mispronunciations (hearing the target when it was wrong), because false-accepts silently teach nothing. Write the result back into this doc.
 

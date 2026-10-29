@@ -1,6 +1,6 @@
 import { Asset } from 'expo-asset';
 import { createAudioPlayer, setAudioModeAsync, type AudioSource } from 'expo-audio';
-import { File, Paths } from 'expo-file-system';
+import { File, Paths, type Directory } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 import type { Puppet, Segment } from '../puppet/mibo';
@@ -10,10 +10,24 @@ export type Clip = { source: AudioSource; text: string; visemes: Viseme[]; secon
 
 let player: ReturnType<typeof createAudioPlayer> | null = null;
 let ready: Promise<unknown> | null = null;
+let recording = false;
+
+/**
+ * The one place the app sets the audio session. On iOS every call replaces
+ * the whole mode (options left out go back to their defaults), so the
+ * player and the microphone must always ask for the same thing: setting
+ * "silent mode" alone after the mic was enabled switched recording off and
+ * the first try was never heard.
+ */
+export function audioMode(allowsRecording = recording): Promise<unknown> {
+  recording = allowsRecording;
+  ready = setAudioModeAsync({ playsInSilentMode: true, allowsRecording }).catch(() => {});
+  return ready;
+}
 
 function get() {
   if (!player) {
-    ready = setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+    if (!ready) audioMode();
     player = createAudioPlayer(null, { updateInterval: 50 });
   }
   return player;
@@ -61,7 +75,11 @@ export async function playClip(puppet: Puppet, clip: Clip, extra: Partial<Segmen
       if (t > 0.05) started = true;
       if (started && (t >= clip.seconds - 0.04 || (!p.playing && waited > 300))) finish();
       // never sit mouthing a line in silence: retry once, then move on
-      if (!started && waited > 1500 && !retried) { retried = true; p.replace(clip.source); p.play(); }
+      if (!started && waited > 1500 && !retried) {
+        // usually the audio session was left record-only: put our mode back, then try once more
+        retried = true;
+        audioMode().then(() => { if (!done) { p.replace(clip.source); p.play(); } });
+      }
       if (!started && waited > 3500) { console.warn('[audio] clip never started:', clip.text); finish(); }
     }, 50);
     const timer = setTimeout(finish, (clip.seconds + 4) * 1000);
@@ -82,11 +100,13 @@ const written: File[] = [];
  * it (an unawaited async write left Mibo mouthing a line in silence), and
  * every file gets a new name so iOS never replays a cached older one.
  */
-export function wavFile(base64: string): AudioSource {
+export function wavFile(base64: string, keep?: string, dir?: Directory): AudioSource {
   if (Platform.OS === 'web') return { uri: `data:audio/wav;base64,${base64}` };
-  const f = new File(Paths.cache, `mibo-live-${Date.now()}-${n++}.wav`);
+  // `keep`: a clip the app reuses (the child's name lines), outside the rotation below
+  const f = new File(dir ?? Paths.cache, keep ? `mibo-keep-${keep}-${Date.now()}.wav` : `mibo-live-${Date.now()}-${n++}.wav`);
   f.create({ overwrite: true });
   f.writeSync(base64, { encoding: 'base64' });
+  if (keep) return { uri: f.uri };
   written.push(f);
   // both prefetched replies, a few sentences each, can be alive at once; keep the last 24
   while (written.length > 24) { try { written.shift()!.delete(); } catch { /* already gone */ } }

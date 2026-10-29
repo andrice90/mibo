@@ -1,13 +1,14 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LESSON_1 } from '@/lesson/content';
+import { clearProgress, loadProgress, saveProgress } from '@/lesson/progress';
 import { useLesson } from '@/lesson/useLesson';
 import { getMibo, listenCaptions } from '@/puppet/mibo';
 import { MiboStage } from '@/puppet/MiboStage';
-import { Backdrop, Bubble, Card, Pill } from '@/ui/kit';
+import { Arrow, Backdrop, Bubble, Card, Column, HomeButton, Pill } from '@/ui/kit';
 import { C, F, SOUND } from '@/ui/theme';
 
 // Steps before the tongue-sound intro belong to /s/, the rest to /th/: the dots take that sound's colour.
@@ -16,19 +17,28 @@ const stepSound = (i: number) => (i >= TH_FROM ? SOUND.th : SOUND.s);
 const STICKERS = ['🦄', '🐙', '🦕', '🐝', '🌈', '🚀', '🐸', '🦁'];
 
 /**
- * The lesson: Mibo fills the stage for the child, a speech bubble shows what
- * Mibo says, and the grown-up's buttons only appear when it's the child's turn.
+ * The lesson: Mibo fills the stage for the child and a speech bubble shows
+ * what he says. The grown-up's ◀ ▶ arrows stay on screen the whole time, as
+ * the fallback for when Mibo's listening gets it wrong.
  */
 export default function Lesson() {
   const puppet = useMemo(() => new (getMibo().Puppet)(), []);
-  const { ui, start, stop, answer, total } = useLesson(puppet);
+  const params = useLocalSearchParams<{ listen?: string; lesson?: string; from?: string }>();
+  const lessonId = params.lesson ?? 's-th';
+  const from = Math.max(0, Math.min(LESSON_1.length - 1, Number(params.from) || 0));
+  const { ui, start, resume, stop, nav, total } = useLesson(puppet, {
+    listen: params.listen !== '0', from, stars: from ? loadProgress(lessonId)?.stars ?? 0 : 0,
+    // remember the place on this phone, so the home screen can offer "continue"
+    onProgress: (step, stars) => saveProgress(lessonId, { step, stars }),
+    onDone: () => clearProgress(lessonId),
+  });
   const [caption, setCaption] = useState('');
 
   useEffect(() => {
     listenCaptions(puppet, text => setCaption(prev => (prev === text ? prev : text)));
-    const t = setTimeout(start, 600);
+    const t = setTimeout(resume, 600);
     return () => { clearTimeout(t); listenCaptions(puppet, null); };
-  }, [puppet, start]);
+  }, [puppet, resume]);
 
   const listening = ui.phase === 'listening';
   const sound = ui.ex ? SOUND[ui.ex.sound] : stepSound(ui.step);
@@ -38,10 +48,9 @@ export default function Lesson() {
   return (
     <Backdrop>
       <SafeAreaView style={styles.root}>
+        <Column max={680}>
         <View style={styles.top}>
-          <Pressable onPress={() => { stop(); router.back(); }} hitSlop={12} style={styles.close} accessibilityLabel="Close lesson">
-            <Text style={styles.closeText}>✕</Text>
-          </Pressable>
+          <HomeButton onPress={() => { stop(); router.dismissTo('/'); }} />
           <Pill style={styles.dots}>
             {Array.from({ length: total }, (_, i) => {
               const c = stepSound(i);
@@ -70,7 +79,7 @@ export default function Lesson() {
             </Text>
             <View style={[styles.row, styles.doneRow]}>
               <Bubble label="Play again" bg={C.mint} deep={C.mintDeep} onPress={start} />
-              <Bubble label="Finish" bg={C.lavender} deep={C.lavenderDeep} onPress={() => router.back()} />
+              <Bubble label="Finish" bg={C.lavender} deep={C.lavenderDeep} onPress={() => router.dismissTo('/')} />
             </View>
           </Card>
         ) : (
@@ -84,28 +93,23 @@ export default function Lesson() {
             </View>
 
             <Card tint={listening ? C.lavender : C.card} style={styles.parent}>
-              {listening ? (
-                <>
-                  <Text style={styles.parentLabel}>Grown-up: how did that sound?</Text>
-                  <View style={styles.row}>
-                    <Bubble label="Got it ✓" bg={C.mint} deep={C.mintDeep} onPress={() => answer('got')} />
-                    <Bubble label="Still tricky" bg={C.peach} deep={C.peachDeep} onPress={() => answer('tricky')} />
-                  </View>
-                  <Pressable onPress={() => answer('skip')} hitSlop={8}>
-                    <Text style={styles.skip}>Skip this one</Text>
-                  </Pressable>
-                </>
-              ) : ui.phase === 'idle' ? (
-                <View style={styles.row}><Bubble label="Start" bg={C.mint} deep={C.mintDeep} onPress={start} /></View>
-              ) : (
-                <Text style={styles.parentHint}>
-                  {ui.phase === 'thinking' ? 'Mibo is thinking…' : ui.phase === 'loading' ? 'One moment…' : 'Watch and listen together 👀'}
-                  {ui.live === 'fallback' ? '  (offline line)' : ''}
-                </Text>
-              )}
+              <View style={styles.navRow}>
+                <Arrow dir="back" bg={C.peachDeep} deep="#c45f3c" onPress={() => nav('back')} />
+                <View style={styles.status}>
+                  {listening && ui.mic && (
+                    <View style={styles.meter}>
+                      {[0.15, 0.35, 0.55, 0.75, 0.9].map((th, i) => (
+                        <View key={i} style={[styles.bar, { height: 12 + i * 7 }, ui.level > th && styles.barOn]} />
+                      ))}
+                    </View>
+                  )}
+                </View>
+                <Arrow dir="fwd" bg={C.mintDeep} deep="#1f7d5a" onPress={() => nav('fwd')} />
+              </View>
             </Card>
           </>
         )}
+        </Column>
       </SafeAreaView>
     </Backdrop>
   );
@@ -138,11 +142,13 @@ const styles = StyleSheet.create({
     shadowColor: '#6b5a8e', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3,
   },
   caption: { fontFamily: F.semi, fontSize: 22, lineHeight: 28, color: C.ink, textAlign: 'center' },
-  parent: { minHeight: 140, gap: 12, justifyContent: 'center' },
-  parentLabel: { fontFamily: F.semi, fontSize: 15, color: C.lavenderDeep, textAlign: 'center' },
-  parentHint: { fontFamily: F.medium, fontSize: 15, color: C.soft, textAlign: 'center' },
+  parent: { paddingVertical: 12, paddingHorizontal: 12 },
+  navRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  status: { flex: 1, alignItems: 'center', gap: 6 },
+  meter: { flexDirection: 'row', alignItems: 'flex-end', gap: 5, height: 44 },
+  bar: { width: 10, borderRadius: 5, backgroundColor: C.white },
+  barOn: { backgroundColor: C.lavenderDeep },
   row: { flexDirection: 'row', gap: 12 },
-  skip: { fontFamily: F.medium, fontSize: 14, color: C.soft, textAlign: 'center', textDecorationLine: 'underline' },
   done: { alignItems: 'center', gap: 8 },
   doneRow: { alignSelf: 'stretch' },
   sticker: { fontSize: 72 },

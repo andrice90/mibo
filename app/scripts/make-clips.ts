@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { LINES, MODELS, type ClipId } from '../src/lesson/content';
+import { LINES, MODELS, NOTES, type ClipId } from '../src/lesson/content';
 import { speak, SAMPLE_RATE } from '../src/server/tts';
 import { analyze, HOP, longestFricative, pcm16ToFloat, pcmToWav, trimEdges, type Frame, type Viseme } from '../src/voice/analyze';
 import { mouthTrack } from '../src/voice/lipsync';
@@ -76,7 +76,7 @@ function fadeEdges(pcm: Uint8Array, inS: number, outS: number): Uint8Array {
 }
 
 async function makeLine(id: string, text: string): Promise<Entry> {
-  const s = await speak(text);
+  const s = await speak(text, true, (NOTES as Record<string, string>)[id] ?? '');
   writeFileSync(path.join(OUT, `${id}.wav`), s.wav);
   return { text, seconds: +s.seconds.toFixed(2), visemes: mouthTrack(text, s.samples, SAMPLE_RATE) };
 }
