@@ -1,58 +1,94 @@
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LESSONS, type LessonInfo } from '@/lesson/lessons';
+import { loadProgress, type Progress } from '@/lesson/progress';
 import { getMibo } from '@/puppet/mibo';
 import { MiboStage } from '@/puppet/MiboStage';
-import { Backdrop, Bubble, Card } from '@/ui/kit';
+import { Backdrop, Bubble, Card, Column } from '@/ui/kit';
 import { C, F } from '@/ui/theme';
 
-const POINTS: [string, string, string][] = [
-  ['👀', C.sky, 'Stay with your child the whole time. You tap how each try sounded.'],
-  ['🌱', C.mint, 'Mibo is a practice buddy, not a speech therapist, and gives no diagnosis.'],
-  ['✨', C.butter, "Mibo's replies are written by AI."],
-  ['🔒', C.rose, "Your child's voice is never recorded or sent anywhere: only your taps are."],
-];
-
-/** Grown-up screen shown before every session (docs/06 §1). */
-export default function Welcome() {
+/** Home: the lessons, and where each one was left off (saved on this phone only). */
+export default function Home() {
   const puppet = useMemo(() => new (getMibo().Puppet)(), []);
-  const [ok, setOk] = useState(false);
+  const [saved, setSaved] = useState<Record<string, Progress | null>>({});
+  const [ask, setAsk] = useState<LessonInfo | null>(null);
+
+  // re-read progress every time the screen comes back into view
+  useFocusEffect(useCallback(() => {
+    setSaved(Object.fromEntries(LESSONS.map(l => [l.id, loadProgress(l.id)])));
+  }, []));
+
+  const open = (l: LessonInfo, resume: boolean) => {
+    setAsk(null);
+    router.push({ pathname: '/welcome', params: { lesson: l.id, resume: resume ? '1' : '0' } });
+  };
+  const pick = (l: LessonInfo) => {
+    if (!l.ready) return;
+    if ((saved[l.id]?.step ?? 0) > 0) setAsk(l); else open(l, false);
+  };
 
   return (
     <Backdrop>
       <SafeAreaView style={styles.root}>
+        <Column max={640}>
         <View style={styles.hero}>
-          <Text style={styles.hi}>{"Hi, I'm Mibo!"}</Text>
-          <Text style={styles.sub}>{"Let's practise the S and TH sounds together"}</Text>
-        </View>
-        <View style={styles.stage}>
-          <MiboStage puppet={puppet} />
-        </View>
-        <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetBody} showsVerticalScrollIndicator={false}>
-          <Card tint={C.card} style={styles.card}>
-            <Text style={styles.h2}>For the grown-up 👋</Text>
-            {POINTS.map(([icon, bg, text]) => (
-              <View key={icon} style={styles.point}>
-                <View style={[styles.chip, { backgroundColor: bg }]}><Text style={styles.chipIcon}>{icon}</Text></View>
-                <Text style={styles.pointText}>{text}</Text>
-              </View>
-            ))}
-            <Pressable style={styles.check} onPress={() => setOk(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: ok }}>
-              <View style={[styles.box, ok && styles.boxOn]}>{ok && <Text style={styles.tick}>✓</Text>}</View>
-              <Text style={styles.checkText}>{"I'm a grown-up and I'll stay with my child."}</Text>
-            </Pressable>
-          </Card>
-          <View style={styles.go}>
-            <Bubble
-              label="Let's play!"
-              bg={C.peach} deep={C.peachDeep}
-              disabled={!ok}
-              onPress={() => { puppet.act('wave'); router.push('/lesson'); }}
-            />
+          <View style={styles.mini}><MiboStage puppet={puppet} /></View>
+          <View style={styles.heroText}>
+            <Text style={styles.hi}>Mibo</Text>
+            <Text style={styles.sub}>Pick a lesson to play</Text>
           </View>
+        </View>
+        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+          {LESSONS.map(l => {
+            const p = saved[l.id];
+            return (
+              <Pressable key={l.id} onPress={() => pick(l)} disabled={!l.ready} accessibilityRole="button"
+                accessibilityLabel={`${l.title}: ${l.subtitle}`}>
+                {({ pressed }) => (
+                  <View style={[styles.lesson, { backgroundColor: l.bg, borderColor: l.deep }, !l.ready && styles.locked,
+                    pressed && styles.pressed]}>
+                    <View style={[styles.badge, { backgroundColor: C.white }]}><Text style={styles.emoji}>{l.emoji}</Text></View>
+                    <View style={styles.lessonText}>
+                      <Text style={[styles.title, { color: l.deep }]}>{l.title}</Text>
+                      <Text style={styles.subtitle}>{l.subtitle}</Text>
+                      {l.ready && p && p.step > 0 && (
+                        <Text style={styles.meta}>
+                          {`Step ${p.step + 1} of ${l.steps}`}{p.stars ? `  ·  ⭐ ${p.stars}` : ''}{p.name ? `  ·  ${p.name}` : ''}
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={[styles.go, { color: l.deep }]}>{l.ready ? (p && p.step > 0 ? 'Continue' : 'Play') : 'Soon'}</Text>
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
         </ScrollView>
+
+        <Modal transparent visible={!!ask} animationType="fade" onRequestClose={() => setAsk(null)}>
+          <Pressable style={styles.scrim} onPress={() => setAsk(null)}>
+            {ask && (
+              <Card style={styles.dialog}>
+                <Text style={styles.dialogEmoji}>{ask.emoji}</Text>
+                <Text style={styles.dialogTitle}>Pick up where you left off?</Text>
+                <Text style={styles.dialogSub}>
+                  {`${ask.title}, step ${(saved[ask.id]?.step ?? 0) + 1} of ${ask.steps}`}
+                  {saved[ask.id]?.name ? ` with ${saved[ask.id]?.name}` : ''}
+                </Text>
+                <View style={styles.row}>
+                  <Bubble label="Continue" bg={C.mint} deep={C.mintDeep} onPress={() => open(ask, true)} />
+                </View>
+                <View style={styles.row}>
+                  <Bubble small label="Start over" bg={C.peach} deep={C.peachDeep} onPress={() => open(ask, false)} />
+                </View>
+              </Card>
+            )}
+          </Pressable>
+        </Modal>
+        </Column>
       </SafeAreaView>
     </Backdrop>
   );
@@ -60,22 +96,29 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  hero: { alignItems: 'center', paddingTop: 12, paddingHorizontal: 24 },
-  hi: { fontFamily: F.bold, fontSize: 34, color: C.ink },
-  sub: { fontFamily: F.medium, fontSize: 17, color: C.soft, textAlign: 'center', marginTop: 2 },
-  stage: { flex: 1, minHeight: 200, marginHorizontal: 16, marginVertical: 12 },
-  sheet: { flexGrow: 0 },
-  sheetBody: { paddingHorizontal: 16, paddingBottom: 12, gap: 14 },
-  card: { gap: 10 },
-  h2: { fontFamily: F.bold, fontSize: 20, color: C.ink, marginBottom: 2 },
-  point: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  chip: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  chipIcon: { fontSize: 18 },
-  pointText: { flex: 1, fontFamily: F.medium, fontSize: 15, lineHeight: 20, color: C.ink },
-  check: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, backgroundColor: C.lavender, borderRadius: 18, padding: 12 },
-  box: { width: 30, height: 30, borderRadius: 10, borderWidth: 2.5, borderColor: C.lavenderDeep, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' },
-  boxOn: { backgroundColor: C.lavenderDeep },
-  tick: { color: C.white, fontSize: 18, fontFamily: F.bold },
-  checkText: { flex: 1, fontFamily: F.semi, fontSize: 15, color: C.ink },
-  go: { flexDirection: 'row' },
+  hero: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, gap: 12 },
+  mini: { width: 130, height: 130 },
+  heroText: { flex: 1 },
+  hi: { fontFamily: F.bold, fontSize: 40, color: C.ink },
+  sub: { fontFamily: F.medium, fontSize: 18, color: C.soft },
+  list: { padding: 16, gap: 14 },
+  lesson: {
+    flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 26, borderWidth: 2.5, padding: 14,
+    shadowColor: '#6b5a8e', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 3,
+  },
+  locked: { opacity: 0.45 },
+  pressed: { transform: [{ scale: 0.98 }] },
+  badge: { width: 58, height: 58, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  emoji: { fontSize: 32 },
+  lessonText: { flex: 1, gap: 2 },
+  title: { fontFamily: F.bold, fontSize: 21 },
+  subtitle: { fontFamily: F.medium, fontSize: 15, color: C.ink },
+  meta: { fontFamily: F.semi, fontSize: 13, color: C.soft, marginTop: 2 },
+  go: { fontFamily: F.bold, fontSize: 16 },
+  scrim: { flex: 1, backgroundColor: 'rgba(59,51,85,0.35)', justifyContent: 'center', padding: 24 },
+  dialog: { alignItems: 'center', gap: 10, width: '100%', maxWidth: 440, alignSelf: 'center' },
+  dialogEmoji: { fontSize: 48 },
+  dialogTitle: { fontFamily: F.bold, fontSize: 22, color: C.ink, textAlign: 'center' },
+  dialogSub: { fontFamily: F.medium, fontSize: 15, color: C.soft, textAlign: 'center', marginBottom: 4 },
+  row: { flexDirection: 'row', alignSelf: 'stretch' },
 });

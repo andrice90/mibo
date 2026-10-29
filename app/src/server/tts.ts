@@ -33,12 +33,12 @@ export type Speech = { wav: Uint8Array; samples: Float32Array; frames: Frame[]; 
  * which are trimmed to the hiss instead). `note` adds a delivery direction
  * for this line only.
  */
-export async function speak(text: string, trim = true, note = ''): Promise<Speech> {
+export async function speak(text: string, trim = true, note = '', voice = VOICE): Promise<Speech> {
   const t0 = Date.now();
   const r = await fetch(`${API}/audio/speech`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${key()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: TTS_MODEL, input: text, voice: VOICE, instructions: note ? `${MIBO_STYLE} ${note}` : MIBO_STYLE, response_format: 'pcm' }),
+    body: JSON.stringify({ model: TTS_MODEL, input: text, voice, instructions: note ? `${MIBO_STYLE} ${note}` : MIBO_STYLE, response_format: 'pcm' }),
   });
   if (!r.ok) throw new Error(`TTS ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const ttfb = (Date.now() - t0) / 1000;

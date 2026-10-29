@@ -12,11 +12,19 @@ export type Sound = 's' | 'th';
 
 /** Talk lines. Keys are clip ids. */
 export const LINES = {
+  // the first screen, before the grown-up's checklist
+  welcome: "Hello! I'm Mibo. First, grab your mom or dad so they can look at the instructions on the screen here. Then we can start learning fun new words!",
+  // after "Hi {name}! I'm Mibo." (src/lesson/name.ts), the same intro without its hello
+  welcomeRest: 'First, grab your mom or dad so they can look at the instructions on the screen here. Then we can start learning fun new words!',
   hello: "Hi friend! I'm Mibo. Today we're playing with two sounds: the snake sound, and the tongue sound!",
   warmup: "First, let's wake up our mouths! Big smile... now wiggle your tongue!",
   watch: 'Watch my mouth.',
   yourTurn: 'Your turn!',
+  youTry: 'You try!',
+  nowYou: 'Now you!',
   sayIt: 'Can you say it?',
+  yourGo: 'Your go! Say it!',
+  canYou: 'Can you do it too?',
   s_intro: "Here's the snake sound. Teeth together, big smile, and blow.",
   s_turn: 'Now you! Make a long snake sound.',
   s_words: "Let's put the snake sound in some words.",
@@ -26,7 +34,12 @@ export const LINES = {
   switch: "Wow, you're a snake sound star! Now let's try a new sound.",
   bye: "You did it! You practised the snake sound and the tongue sound. Here's a sticker for you!",
   ooh: 'Ooh!',
+  yay: 'Yay!',
+  wow: 'Wow!',
+  woohoo: 'Woo-hoo!',
   hmm: 'Hmm!',
+  close: 'Ooh, close!',
+  okay: 'Okay!',
   // fallbacks when the live reply is slow or offline (same text as src/server/reply.ts)
   fb_got_1: 'Yes! You did it! Super sound!',
   fb_got_2: 'Wow! That was amazing!',
@@ -55,6 +68,24 @@ export const MODELS = {
 } as const;
 
 export type LineId = keyof typeof LINES;
+
+/**
+ * Lines that say the same thing, so Mibo does not repeat himself: each use
+ * takes the next one in the group (founder, 2026-10-28: at least 3 each).
+ */
+export const VARIANTS = {
+  watch: ['watch'],   // founder's pick (take B); one line, no rotation
+  yourTurn: ['yourTurn', 'youTry', 'nowYou'],
+  sayIt: ['sayIt', 'yourGo', 'canYou'],
+  yay: ['yay', 'ooh', 'wow', 'woohoo'],
+  hmm: ['hmm', 'close', 'okay'],
+} as const satisfies Record<string, readonly LineId[]>;
+
+/** Per-line delivery notes for Leda, for lines that come out wrong without one. */
+export const NOTES: Partial<Record<LineId, string>> = {
+  watch: "Say 'watch' clearly as 'wotch' (rhymes with 'notch'): no r sound in it.",
+  hello: "Say 'friend' as one short, bright word with a simple happy rise, no wobble or drawn-out ending.",
+};
 export type ModelId = keyof typeof MODELS;
 export type ClipId = LineId | ModelId;
 

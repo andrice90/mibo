@@ -5,6 +5,8 @@ import manifest from '../../assets/voice/clips.json';
 
 export const CLIP_AUDIO: Record<string, number> = {
   bye: require('../../assets/voice/bye.wav'),
+  canYou: require('../../assets/voice/canYou.wav'),
+  close: require('../../assets/voice/close.wav'),
   fb_got_1: require('../../assets/voice/fb_got_1.wav'),
   fb_got_2: require('../../assets/voice/fb_got_2.wav'),
   fb_got_3: require('../../assets/voice/fb_got_3.wav'),
@@ -13,6 +15,8 @@ export const CLIP_AUDIO: Record<string, number> = {
   fb_tricky_3: require('../../assets/voice/fb_tricky_3.wav'),
   hello: require('../../assets/voice/hello.wav'),
   hmm: require('../../assets/voice/hmm.wav'),
+  nowYou: require('../../assets/voice/nowYou.wav'),
+  okay: require('../../assets/voice/okay.wav'),
   ooh: require('../../assets/voice/ooh.wav'),
   s_hold: require('../../assets/voice/s_hold.wav'),
   s_intro: require('../../assets/voice/s_intro.wav'),
@@ -26,6 +30,9 @@ export const CLIP_AUDIO: Record<string, number> = {
   th_words: require('../../assets/voice/th_words.wav'),
   warmup: require('../../assets/voice/warmup.wav'),
   watch: require('../../assets/voice/watch.wav'),
+  welcome: require('../../assets/voice/welcome.wav'),
+  welcomeRest: require('../../assets/voice/welcomeRest.wav'),
+  woohoo: require('../../assets/voice/woohoo.wav'),
   word_seal: require('../../assets/voice/word_seal.wav'),
   word_soap: require('../../assets/voice/word_soap.wav'),
   word_sock: require('../../assets/voice/word_sock.wav'),
@@ -33,6 +40,10 @@ export const CLIP_AUDIO: Record<string, number> = {
   word_think: require('../../assets/voice/word_think.wav'),
   word_three: require('../../assets/voice/word_three.wav'),
   word_thumb: require('../../assets/voice/word_thumb.wav'),
+  wow: require('../../assets/voice/wow.wav'),
+  yay: require('../../assets/voice/yay.wav'),
+  youTry: require('../../assets/voice/youTry.wav'),
+  yourGo: require('../../assets/voice/yourGo.wav'),
   yourTurn: require('../../assets/voice/yourTurn.wav'),
 };
 

@@ -17,6 +17,8 @@ export type Turn = {
   mark: Mark;             // the grown-up's tap
   attempt: number;        // 1-based
   willRetry: boolean;     // the app will model the word again after this line
+  heard?: 's' | 'th' | 'sh' | 'stop';  // what the on-device check heard, when it heard something else
+  avoid?: string[];       // Mibo's last few lines, so the next one says it differently
 };
 export type Reply = { say: string; mood: 'happy' | 'gentle' | 'surprised'; source: 'llm' | 'fallback'; ms?: number };
 
@@ -24,6 +26,20 @@ const SOUND_TIP = {
   s: 'teeth together, smile, and blow a long snake hiss',
   th: 'tongue peeks out between the teeth and blows gently',
 };
+
+const HEARD = {
+  s: 'a hissy s sound', th: 'the tongue poking out (a th sound)', sh: 'a shushy sh sound', stop: 'a quick t sound instead of a long hiss',
+};
+
+// A different angle each time keeps Mibo from saying "great snake sound!" over and over.
+const ANGLES = [
+  'Name the word they said and cheer for it.',
+  'Praise what their mouth did (teeth, tongue, lips or blowing).',
+  'Be silly and playful, like a cartoon friend.',
+  'Compare it to something fun (a sleepy snake, a bicycle tyre, a kettle).',
+  'Keep it very short and bouncy, three or four words.',
+  'Say how proud Mibo is, warmly.',
+];
 
 const SYSTEM = `You write ONE short line for Mibo, a friendly cartoon speech-practice buddy for children aged 4-7. A grown-up is sitting with the child and taps whether the child's try sounded right.
 
@@ -35,6 +51,8 @@ Rules:
 - Do not write the sound stretched out (no "Sssss" or "Thhhh"): the app plays that clip itself.
 - Never mention doctors, therapy, diagnosis, or anything about the child's body beyond the mouth tip.
 - Do not ask for names or personal details. Do not say "your turn": the app says that.
+- Do not start with "Ooh", "Wow" or "Yay": Mibo has just said one of those. Don't always say "snake sound" or "tongue sound".
+- Never repeat or closely copy any line in "alreadySaid".
 Return JSON: {"say": string, "mood": "happy" | "gentle" | "surprised"}`;
 
 const BLOCK = /\b(wrong|bad|fail|failed|incorrect|no|doctor|therap\w*|diagnos\w*|disorder|lisp|stupid|dumb)\b/i;
@@ -65,6 +83,9 @@ export async function writeReply(t: Turn, timeoutMs = 5000): Promise<Reply> {
     attempted: t.target,
     grownUpHeard: t.mark === 'got' ? 'sounded right' : 'still tricky',
     attemptNumber: t.attempt,
+    ...(t.heard ? { mibosEarsHeard: HEARD[t.heard] } : {}),
+    angle: ANGLES[Math.floor(Math.random() * ANGLES.length)],
+    alreadySaid: t.avoid ?? [],
     nextStep: t.willRetry ? 'Mibo will show it again' : t.mark === 'got' ? 'move on to the next one' : 'move on, keep it happy',
   });
   const t0 = Date.now();
@@ -89,7 +110,7 @@ export async function writeReply(t: Turn, timeoutMs = 5000): Promise<Reply> {
           },
         },
         reasoning_effort: 'minimal',
-        max_tokens: 400,
+        max_tokens: 1200,   // Muse Spark reasons first; 400 cut a quarter of the lines off mid-JSON
       }),
     });
     if (!r.ok) throw new Error(`Meta ${r.status}: ${(await r.text()).slice(0, 200)}`);

@@ -116,8 +116,9 @@ const MOODS = {
     blush: 0.85, browRaise: 0.35, sy: 1.03, sparkle: 1.15 },
   listening: { camZoom: 1.08, eyeScale: 1.12, sparkle: 1.25, browRaise: 0.55, mw: 95,
     mh: 22, round: 0.6, smile: 0.15, tilt: -7, lean: -0.02, listen: 1, armR: 70 },
-  thinking: { lookX: 0.65, lookY: -0.7, topLid: 0.22, browAsym: 0.9, browRaise: 0.15,
-    mw: 95, mh: 0, smile: -0.15, mx: 45, armL: -80, armLBend: 0.6, think: 1, tilt: 4 },
+  // curious, not cross (founder, 2026-10-28): open eyes, both brows up, a pursed "hmm" with a hint of smile
+  thinking: { lookX: 0.6, lookY: -0.65, topLid: 0, browAsym: 0.35, browRaise: 0.5, sparkle: 1.15,
+    mw: 92, mh: 22, round: 0.65, smile: 0.2, mx: 40, armL: -80, armLBend: 0.6, think: 1, tilt: 5 },
   surprised: { eyeScale: 1.25, sparkle: 1.3, browRaise: 1, mw: 120, mh: 115, round: 0.8,
     smile: 0, sy: 1.07, armL: 55, armR: 80, blush: 0.35 },
   gentle: { browAngle: 0.55, browRaise: 0.25, happy: 0.25, smile: 0.45, lookY: 0.12,
