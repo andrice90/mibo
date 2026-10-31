@@ -9,7 +9,7 @@
  * plays the bundled clip for that fallback.
  */
 import { MAX_ATTEMPTS, TARGETS } from '@/lesson/content';
-import { fallbackReply, writeReply, type Turn } from '@/server/reply';
+import { fallbackReply, HEARDS, SOUNDS, writeReply, type Turn } from '@/server/reply';
 import { speak, speechVisemes, toBase64 } from '@/server/tts';
 
 /** Sentences, with very short ones ("Wow!") joined to the next so each piece sounds natural. */
@@ -51,12 +51,12 @@ export async function POST(req: Request) {
     const b = await req.json();
     t = { sound: b.sound, target: b.target, mark: b.mark, attempt: Number(b.attempt), willRetry: !!b.willRetry };
     if (b.heard !== undefined) {
-      if (!['s', 'th', 'sh', 'stop'].includes(b.heard)) throw new Error('bad heard');
+      if (!HEARDS.includes(b.heard)) throw new Error('bad heard');
       t.heard = b.heard;
     }
     // Mibo's own recent lines (the app got them from this route); short and few, never child text
     if (Array.isArray(b.avoid)) t.avoid = b.avoid.slice(-4).map((x: unknown) => String(x).slice(0, 140));
-    if (!['s', 'th'].includes(t.sound) || !TARGETS.has(t.target) || !['got', 'tricky'].includes(t.mark)
+    if (!SOUNDS.includes(t.sound) || !TARGETS.has(t.target) || !['got', 'tricky'].includes(t.mark)
       || !(t.attempt >= 1 && t.attempt <= MAX_ATTEMPTS)) throw new Error('bad turn');
   } catch {
     return Response.json({ error: 'bad request' }, { status: 400 });

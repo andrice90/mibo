@@ -1,6 +1,6 @@
 /// <reference types="node" />
 /**
- * Generates Lesson 1's bundled voice: every line and model clip in
+ * Generates the lessons' bundled voice: every line and model clip in
  * src/lesson/content.ts, spoken by Leda, with a mouth track per clip.
  *
  *   npx tsx scripts/make-clips.ts              # only clips that are missing
@@ -85,7 +85,7 @@ async function makeModel(id: string, m: { text: string; sound: string; trim: boo
   let best: { pcm: Uint8Array; frames: Frame[]; hiss: number } | null = null;
   let n = 0;
   for (; n < takes; n++) {
-    const s = await speak(m.text, !m.trim);
+    const s = await speak(m.text, !m.trim, (NOTES as Record<string, string>)[id] ?? '');
     let pcm = s.wav.subarray(44), frames = s.frames;
     if (m.trim) { pcm = trimToHiss(pcm, frames); frames = analyze(pcm16ToFloat(pcm), SAMPLE_RATE); }
     const hiss = longestFricative(frames);

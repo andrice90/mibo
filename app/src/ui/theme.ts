@@ -22,6 +22,10 @@ export const C = {
 export const SOUND = {
   s: { bg: C.mint, deep: C.mintDeep, name: 'snake sound' },
   th: { bg: C.lavender, deep: C.lavenderDeep, name: 'tongue sound' },
+  sh: { bg: C.lavender, deep: C.lavenderDeep, name: 'quiet sound' },
+  z: { bg: C.butter, deep: C.butterDeep, name: 'buzzy sound' },
+  rhyme: { bg: C.peach, deep: C.peachDeep, name: 'rhyming' },
+  twisty: { bg: C.sky, deep: '#2f7fb8', name: 'twisty word' },
 };
 
 export const F = {

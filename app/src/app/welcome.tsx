@@ -4,28 +4,26 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollVie
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { bundled, preloadClips } from '@/lesson/clips';
+import { hasConsent, loadConsent, saveConsent } from '@/lesson/consent';
+import { clipsFor, planFor } from '@/lesson/content';
 import { forgetLearnedName, forgetName, learnedNames, makeNameLines, nameClip, pickLearnedName, restoreName, savedName, validName } from '@/lesson/name';
 import { clearProgress, loadProgress, saveProgress } from '@/lesson/progress';
 import { getMibo } from '@/puppet/mibo';
 import { MiboStage } from '@/puppet/MiboStage';
 import { Backdrop, Bubble, Card, Column, HomeButton } from '@/ui/kit';
+import { ConsentCard } from '@/ui/ConsentCard';
 import { C, F } from '@/ui/theme';
 import { playClip, stopAudio, type Clip } from '@/voice/player';
-
-const POINTS: [string, string, string][] = [
-  ['👀', C.sky, 'Stay with your child. ◀ ▶ redo or skip any step.'],
-  ['🌱', C.mint, 'A practice buddy, not a speech therapist. No diagnosis.'],
-  ['✨', C.butter, "Mibo's replies are written by AI."],
-  ['🔒', C.rose, 'Listening happens on this phone only. Voices are never kept or sent.'],
-];
 
 type Stage = 'ask' | 'making' | 'intro' | 'ready';
 const CHIP = [C.mint, C.lavender, C.butter, C.peach, C.sky, C.rose];
 
 /**
  * Before a lesson. The grown-up picks or types the child's name (or skips),
- * silently; then Mibo says hello by name and sends the child to fetch a grown-up,
- * then the grown-up's checklist (docs/06 §1) and the start button appear.
+ * silently; then Mibo says hello by name. The grown-up's consent is given
+ * once, at first app start (home screen); after Mibo's hello this screen
+ * goes straight into the lesson. Only if consent is somehow missing does
+ * the checklist appear here, once, before the lesson starts.
  * Resuming (?resume=1) skips the name: the saved one and its clips are used.
  */
 export default function Welcome() {
@@ -36,8 +34,11 @@ export default function Welcome() {
   const [stage, setStage] = useState<Stage>(resume ? 'making' : 'ask');
   const [name, setName] = useState('');
   const [known, setKnown] = useState<string[]>(() => learnedNames());
-  const [ok, setOk] = useState(false);
-  const [hear, setHear] = useState(true);
+
+  const go = (hear: boolean) => {
+    stopAudio(); puppet.stop();
+    router.replace({ pathname: '/lesson', params: { listen: hear ? '1' : '0', lesson: lessonId, from: String(resume?.step ?? 0) } });
+  };
 
   const intro = async (useName: boolean, restored = false) => {
     const say = (c: Clip) => playClip(puppet, c).catch(() => {});
@@ -54,6 +55,8 @@ export default function Welcome() {
     if (hi) { puppet.act('wave'); await say(hi); await say(bundled('welcomeRest')); }
     else await say(bundled('welcome'));
     puppet.setMood('neutral');
+    // consent already given (once, at first app start): straight into the lesson
+    if (hasConsent()) { go(loadConsent()?.hear ?? true); return; }
     setStage('ready');
   };
 
@@ -73,7 +76,7 @@ export default function Welcome() {
         puppet.setMood('happy');
         puppet.act('wave');
       }
-      preloadClips();   // the rest of the lesson's voice, while the grown-up types
+      preloadClips(clipsFor(planFor(lessonId)));   // the rest of the lesson's voice, while the grown-up types
     })();
     return () => { live = false; stopAudio(); puppet.stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,34 +141,7 @@ export default function Welcome() {
               </Card>
             )}
             {stage === 'ready' && (
-              <>
-                <Card style={styles.card}>
-                  <Text style={styles.h2}>For the grown-up 👋</Text>
-                  {POINTS.map(([icon, bg, text]) => (
-                    <View key={icon} style={styles.point}>
-                      <View style={[styles.chip, { backgroundColor: bg }]}><Text style={styles.chipIcon}>{icon}</Text></View>
-                      <Text style={styles.pointText}>{text}</Text>
-                    </View>
-                  ))}
-                  <Pressable style={styles.check} onPress={() => setOk(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: ok }}>
-                    <View style={[styles.box, ok && styles.boxOn]}>{ok && <Text style={styles.tick}>✓</Text>}</View>
-                    <Text style={styles.checkText}>{"I'm a grown-up and I'll stay with my child."}</Text>
-                  </Pressable>
-                  <Pressable style={[styles.check, styles.micRow]} onPress={() => setHear(v => !v)} accessibilityRole="switch" accessibilityState={{ checked: hear }}>
-                    <View style={[styles.box, styles.micBox, hear && styles.micOn]}>{hear && <Text style={styles.tick}>✓</Text>}</View>
-                    <Text style={styles.checkText}>{'🎤 Let Mibo listen (on this phone only)'}</Text>
-                  </Pressable>
-                </Card>
-                <View style={styles.row}>
-                  <Bubble
-                    label="Let's play!" bg={C.peach} deep={C.peachDeep} disabled={!ok}
-                    onPress={() => {
-                      stopAudio(); puppet.stop();
-                      router.replace({ pathname: '/lesson', params: { listen: hear ? '1' : '0', lesson: lessonId, from: String(resume?.step ?? 0) } });
-                    }}
-                  />
-                </View>
-              </>
+              <ConsentCard buttonLabel="Let's play!" onDone={hear => { saveConsent(hear); go(hear); }} />
             )}
           </ScrollView>
         </KeyboardAvoidingView>
@@ -195,21 +171,9 @@ const styles = StyleSheet.create({
   note: { fontFamily: F.medium, fontSize: 12.5, lineHeight: 17, color: C.soft },
   skip: { fontFamily: F.medium, fontSize: 14, color: C.soft, textAlign: 'center', textDecorationLine: 'underline' },
   listen: { fontFamily: F.bold, fontSize: 20, color: C.lavenderDeep },
-  point: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  chip: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  chipIcon: { fontSize: 15 },
-  pointText: { flex: 1, fontFamily: F.medium, fontSize: 14, lineHeight: 18, color: C.ink },
-  check: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4, backgroundColor: C.lavender, borderRadius: 16, paddingVertical: 9, paddingHorizontal: 11 },
-  box: { width: 26, height: 26, borderRadius: 9, borderWidth: 2.5, borderColor: C.lavenderDeep, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' },
-  boxOn: { backgroundColor: C.lavenderDeep },
-  tick: { color: C.white, fontSize: 18, fontFamily: F.bold },
-  checkText: { flex: 1, fontFamily: F.semi, fontSize: 14, color: C.ink },
   row: { flexDirection: 'row' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   chip2: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, paddingVertical: 10, paddingLeft: 18, paddingRight: 12 },
   chipName: { fontFamily: F.bold, fontSize: 20, color: C.ink },
   chipX: { fontFamily: F.bold, fontSize: 18, color: C.soft },
-  micRow: { backgroundColor: C.mint, marginTop: 0 },
-  micBox: { borderColor: C.mintDeep },
-  micOn: { backgroundColor: C.mintDeep },
 });

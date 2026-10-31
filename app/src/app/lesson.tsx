@@ -1,9 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { LESSON_1 } from '@/lesson/content';
+import { planFor, stepSounds } from '@/lesson/content';
 import { clearProgress, loadProgress, saveProgress } from '@/lesson/progress';
 import { useLesson } from '@/lesson/useLesson';
 import { getMibo, listenCaptions } from '@/puppet/mibo';
@@ -11,23 +11,24 @@ import { MiboStage } from '@/puppet/MiboStage';
 import { Arrow, Backdrop, Bubble, Card, Column, HomeButton, Pill } from '@/ui/kit';
 import { C, F, SOUND } from '@/ui/theme';
 
-// Steps before the tongue-sound intro belong to /s/, the rest to /th/: the dots take that sound's colour.
-const TH_FROM = LESSON_1.findIndex(s => s.kind === 'line' && s.clip === 'th_intro');
-const stepSound = (i: number) => (i >= TH_FROM ? SOUND.th : SOUND.s);
 const STICKERS = ['🦄', '🐙', '🦕', '🐝', '🌈', '🚀', '🐸', '🦁'];
 
 /**
  * The lesson: Mibo fills the stage for the child and a speech bubble shows
- * what he says. The grown-up's ◀ ▶ arrows stay on screen the whole time, as
+ * what he says. In a picture game two big pictures sit under him for the
+ * child to tap. The grown-up's ◀ ▶ arrows stay on screen the whole time, as
  * the fallback for when Mibo's listening gets it wrong.
  */
 export default function Lesson() {
   const puppet = useMemo(() => new (getMibo().Puppet)(), []);
   const params = useLocalSearchParams<{ listen?: string; lesson?: string; from?: string }>();
   const lessonId = params.lesson ?? 's-th';
-  const from = Math.max(0, Math.min(LESSON_1.length - 1, Number(params.from) || 0));
-  const { ui, start, resume, stop, nav, total } = useLesson(puppet, {
-    listen: params.listen !== '0', from, stars: from ? loadProgress(lessonId)?.stars ?? 0 : 0,
+  const steps = useMemo(() => planFor(lessonId), [lessonId]);
+  // each step's sound: the progress dots take that sound's colour
+  const sounds = useMemo(() => stepSounds(steps).map(s => SOUND[s]), [steps]);
+  const from = Math.max(0, Math.min(steps.length - 1, Number(params.from) || 0));
+  const { ui, start, resume, stop, nav, choose, total } = useLesson(puppet, {
+    steps, listen: params.listen !== '0', from, stars: from ? loadProgress(lessonId)?.stars ?? 0 : 0,
     // remember the place on this phone, so the home screen can offer "continue"
     onProgress: (step, stars) => saveProgress(lessonId, { step, stars }),
     onDone: () => clearProgress(lessonId),
@@ -41,7 +42,8 @@ export default function Lesson() {
   }, [puppet, resume]);
 
   const listening = ui.phase === 'listening';
-  const sound = ui.ex ? SOUND[ui.ex.sound] : stepSound(ui.step);
+  const sound = ui.ex ? SOUND[ui.ex.sound] : ui.pick ? SOUND[ui.pick.sound] : sounds[ui.step];
+  const badge = ui.ex ?? ui.pick?.word ?? null;
   const bubble = ui.phase === 'loading' ? 'Getting my voice ready…'
     : listening ? 'Your turn!' : ui.phase === 'thinking' ? caption || '…' : caption;
 
@@ -53,7 +55,7 @@ export default function Lesson() {
           <HomeButton onPress={() => { stop(); router.dismissTo('/'); }} />
           <Pill style={styles.dots}>
             {Array.from({ length: total }, (_, i) => {
-              const c = stepSound(i);
+              const c = sounds[i];
               return <View key={i} style={[styles.dot, { backgroundColor: i <= ui.step ? c.deep : c.bg }, i === ui.step && styles.dotNow]} />;
             })}
           </Pill>
@@ -62,13 +64,34 @@ export default function Lesson() {
 
         <View style={styles.stage}>
           <MiboStage puppet={puppet} />
-          {ui.ex && (
+          {badge && (
             <View style={[styles.word, { backgroundColor: sound.bg, borderColor: sound.deep }]} pointerEvents="none">
-              <Text style={styles.emoji}>{ui.ex.emoji}</Text>
-              <Text style={[styles.wordText, { color: sound.deep }]}>{ui.ex.target}</Text>
+              <Text style={styles.emoji}>{badge.emoji}</Text>
+              <Text style={[styles.wordText, { color: sound.deep }]}>{'target' in badge ? badge.target : badge.word}</Text>
             </View>
           )}
         </View>
+
+        {ui.pick && ui.phase !== 'done' && (
+          <View style={styles.choices}>
+            {ui.pick.choices.map((ch, i) => {
+              const tapped = ui.picked?.i === i;
+              const right = tapped && ui.picked!.ok, miss = tapped && !ui.picked!.ok, other = !tapped && !!ui.picked?.ok;
+              return (
+                <Pressable key={ch.word} onPress={() => choose(i)} disabled={ui.phase !== 'picking'}
+                  accessibilityRole="button" accessibilityLabel={ch.word}>
+                  {({ pressed }) => (
+                    <View style={[styles.choice, { borderColor: sound.deep }, right && { backgroundColor: sound.bg },
+                      miss && styles.choiceMiss, other && styles.choiceDim, pressed && styles.pressed]}>
+                      <Text style={styles.choiceEmoji}>{ch.emoji}</Text>
+                      <Text style={[styles.choiceWord, { color: sound.deep }]}>{ch.word}</Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         {ui.phase === 'done' ? (
           <Card style={styles.done}>
@@ -134,6 +157,16 @@ const styles = StyleSheet.create({
   },
   emoji: { fontSize: 46 },
   wordText: { fontFamily: F.bold, fontSize: 20 },
+  choices: { flexDirection: 'row', justifyContent: 'center', gap: 18, marginBottom: 14 },
+  choice: {
+    width: 128, paddingVertical: 10, borderRadius: 28, borderWidth: 3, backgroundColor: C.white, alignItems: 'center',
+    shadowColor: '#6b5a8e', shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 3,
+  },
+  choiceMiss: { opacity: 0.45, transform: [{ rotate: '-5deg' }] },
+  choiceDim: { opacity: 0.35 },
+  choiceEmoji: { fontSize: 56 },
+  choiceWord: { fontFamily: F.bold, fontSize: 19 },
+  pressed: { transform: [{ scale: 0.95 }] },
   bubbleWrap: { alignItems: 'center', marginBottom: 12 },
   tail: { width: 22, height: 22, backgroundColor: C.white, transform: [{ rotate: '45deg' }], marginBottom: -12 },
   bubble: {

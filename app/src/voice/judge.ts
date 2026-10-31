@@ -9,13 +9,18 @@
  *   /θ/  weak, flat, spread-out noise (the interdental lisp)
  *   /ʃ/  hiss peaking lower, ~2.5-4.5 kHz (also a palatal/lateral-ish /s/)
  *   /t/  a short burst instead of a held hiss ("tun" for "sun")
- * So we find the hiss (before the first vowel for a word, the longest one
- * for a held sound) and measure its spectrum and loudness relative to the
- * vowel. The verdict is a suggestion for the grown-up, who confirms with
+ *   /z/  an /s/ with the voice on: the same high hiss over a buzz
+ * So we find the hiss (before the first vowel for a word, after the last
+ * vowel for an end-of-word sound, the longest one for a held sound) and
+ * measure its spectrum and loudness relative to the vowel. The verdict is a suggestion for the grown-up, who confirms with
  * one tap (PROJECT #6); thresholds come from calibration recordings.
  */
 
-export type Heard = 's' | 'th' | 'sh' | 'stop' | 'none';
+export type Heard = 's' | 'th' | 'sh' | 'z' | 'stop' | 'none';
+/** The sounds a lesson can ask for. */
+export type Target = 's' | 'th' | 'sh' | 'z';
+/** Where the sound is: held on its own, at the start of a word, or at the end of one. */
+export type Kind = 'hold' | 'word' | 'end';
 export type Verdict = {
   heard: Heard;
   match: boolean | null;  // null: could not tell (no speech, too noisy)
@@ -24,6 +29,7 @@ export type Verdict = {
 };
 
 const HOP = 0.01, WIN = 0.02;
+const VOWEL_RUN = 5;   // frames (50 ms)
 
 function fft(re: Float64Array, im: Float64Array) {
   const n = re.length;
@@ -89,9 +95,14 @@ const pct = (v: number[], q: number) => { const s = [...v].sort((a, b) => a - b)
 
 /**
  * Judge one try. `kind`: 'word' finds the hiss before the first vowel
- * ("sun"); 'hold' takes the longest hiss anywhere ("Sssss").
+ * ("sun"); 'end' the one after the last vowel ("fish"); 'hold' takes the
+ * longest hiss anywhere ("Sssss").
+ *
+ * For /z/ a voiced hiss counts too, and an /s/ passes: the teeth and tongue
+ * were right, and the buzz often drops out (always, nearly, at the end of a
+ * word). What the check is for is a tongue-out or shushy sound.
  */
-export function judge(x: Float32Array, sr: number, target: 's' | 'th', kind: 'word' | 'hold'): Verdict {
+export function judge(x: Float32Array, sr: number, target: Target, kind: Kind): Verdict {
   const { out: fr, binHz, lo } = frames(x, sr);
   if (fr.length < 10) return { heard: 'none', match: null, speech: false };
   const dbs = fr.map(f => f.db);
@@ -101,9 +112,19 @@ export function judge(x: Float32Array, sr: number, target: 's' | 'th', kind: 'wo
   if (!speech) return { heard: 'none', match: null, speech: false };
 
   const vowel = (f: F) => f.voiced && f.hf < 0.3 && f.db > speechGate;
-  // /θ/ is soft, so a hiss frame only needs to clear the noise floor, not the speech gate
-  const hiss = (f: F) => !f.voiced && f.hf > 0.4 && f.db > floor + 5;
-  const firstVowel = fr.findIndex(vowel);
+  // /θ/ is soft, so a hiss frame only needs to clear the noise floor, not the speech gate;
+  // a /z/ hiss rides on the voice, whose low hum takes a share of the energy
+  const buzz = target === 'z';
+  const hiss = (f: F) => (!f.voiced || buzz) && f.hf > (f.voiced ? 0.35 : 0.4) && f.db > floor + 5;
+  // a vowel lasts: the short voiced blip a /z/ often starts with is not one. Its
+  // loudness bar is lower than vowel()'s, as a loud hiss lifts the floor ("sree")
+  const voicedRun = (f: F) => f.voiced && f.hf < 0.3 && f.db > floor + 6;
+  let firstVowel = -1, lastVowel = -1;
+  for (let i = 0, n = 0; i < fr.length; i++) {
+    n = voicedRun(fr[i]) ? n + 1 : 0;
+    if (n === VOWEL_RUN && firstVowel < 0) firstVowel = i - VOWEL_RUN + 1;
+    if (n >= VOWEL_RUN) lastVowel = i;
+  }
   const vowelDb = firstVowel >= 0 ? pct(fr.filter(vowel).map(f => f.db), 0.9) : NaN;
 
   // find the hiss run that counts
@@ -118,6 +139,10 @@ export function judge(x: Float32Array, sr: number, target: 's' | 'th', kind: 'wo
     // the run that ends closest before the first vowel (small gaps allowed)
     const before = runs.filter(([, e]) => e <= firstVowel + 1 && firstVowel - e < 15);
     if (before.length) [a, b] = before[before.length - 1];
+  } else if (kind === 'end' && lastVowel >= 0) {
+    // the first run that starts after the last vowel (children often pause first: "fi... sh")
+    const after = runs.find(([s]) => s >= lastVowel - 1 && s - lastVowel < 35);
+    if (after) [a, b] = after;
   } else if (runs.length) {
     [a, b] = runs.reduce((m, r) => (r[1] - r[0] > m[1] - m[0] ? r : m));
   }
@@ -129,8 +154,8 @@ export function judge(x: Float32Array, sr: number, target: 's' | 'th', kind: 'wo
 
   // average spectrum of the hiss and its shape
   const n = fr[a].spec.length, avg = new Float64Array(n);
-  let levelDb = 0;
-  for (let i = a; i < b; i++) { for (let k = 0; k < n; k++) avg[k] += fr[i].spec[k]; levelDb += fr[i].db; }
+  let levelDb = 0, voiced = 0;
+  for (let i = a; i < b; i++) { for (let k = 0; k < n; k++) avg[k] += fr[i].spec[k]; levelDb += fr[i].db; voiced += +fr[i].voiced; }
   levelDb /= b - a;
   let tot = 0, m1 = 0, logSum = 0, pk = 0, pkv = 0;
   for (let k = 0; k < n; k++) {
@@ -145,9 +170,10 @@ export function judge(x: Float32Array, sr: number, target: 's' | 'th', kind: 'wo
   const flatness = Math.exp(logSum / n) / (tot / n);   // 1 = perfectly flat noise, 0 = one sharp peak
   const relDb = Number.isFinite(vowelDb) ? levelDb - vowelDb : NaN;
 
-  const heard = classify(centroid, flatness, relDb, ms, kind);
+  let heard = classify(centroid, flatness, relDb, ms, kind);
+  if (heard === 's' && buzz && voiced / (b - a) > 0.3) heard = 'z';
   return {
-    heard, speech: true, match: heard === target,
+    heard, speech: true, match: heard === target || (target === 'z' && heard === 's'),
     feats: { ms: Math.round(ms), centroid: Math.round(centroid), peak: Math.round(pk), flatness: +flatness.toFixed(3), relDb: +relDb.toFixed(1), levelDb: +levelDb.toFixed(1) },
   };
 }
@@ -155,15 +181,17 @@ export function judge(x: Float32Array, sr: number, target: 's' | 'th', kind: 'wo
 /**
  * Thresholds, tuned on the calibration set (scripts/judge-test.ts):
  * /s/ centroid 8.1-9.2 kHz, flat < 0.25, within ~12 dB of the vowel;
- * /ʃ/ centroid 5.2-6.6 kHz; /θ/ 18-30 dB quieter than the vowel and flat;
+ * /ʃ/ centroid 4.3-6.8 kHz; /θ/ 18-30 dB quieter than the vowel and flat;
  * a /t/ release is a 60-100 ms puff, a real /s/ in a word lasts 240 ms or more.
+ * A quiet hiss is /θ/ unless it peaks low: a soft /ʃ/ ("shell") is still /ʃ/,
+ * and every held /θ/ in the set sat above 6 kHz.
  */
-export const T = { shCentroid: 7000, thRel: -18, thFlat: 0.4, thCentroid: 7000, stopMs: 110 };
+export const T = { shCentroid: 7000, shQuietCentroid: 6000, thRel: -18, thFlat: 0.4, thCentroid: 7000, stopMs: 110 };
 
-function classify(centroid: number, flatness: number, relDb: number, ms: number, kind: 'word' | 'hold'): Heard {
+function classify(centroid: number, flatness: number, relDb: number, ms: number, kind: Kind): Heard {
   const quiet = Number.isFinite(relDb) && relDb < T.thRel;
-  if (kind === 'word' && ms < T.stopMs) return quiet ? 'th' : 'stop';
-  if (quiet) return 'th';
+  if (kind !== 'hold' && ms < T.stopMs) return quiet ? 'th' : 'stop';
+  if (quiet) return centroid < T.shQuietCentroid ? 'sh' : 'th';
   if (flatness > T.thFlat && centroid > T.thCentroid) return 'th';
   if (centroid < T.shCentroid) return 'sh';
   return 's';
@@ -177,7 +205,7 @@ export type TryVerdict = Verdict & { words: Verdict[] };
  * if any of them has the target sound. A child often needs a couple of goes,
  * and grown-ups chat in between; one good one is a pass.
  */
-export function judgeTry(x: Float32Array, sr: number, target: 's' | 'th', kind: 'word' | 'hold'): TryVerdict {
+export function judgeTry(x: Float32Array, sr: number, target: Target, kind: Kind): TryVerdict {
   const hop = Math.round(HOP * sr), win = Math.round(WIN * sr);
   const dbs: number[] = [];
   for (let s = 0; s + win <= x.length; s += hop) {

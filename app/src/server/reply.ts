@@ -12,23 +12,42 @@ const MODEL = 'muse-spark-1.3';
 
 export type Mark = 'got' | 'tricky';
 export type Turn = {
-  sound: 's' | 'th';      // the lesson's target sound
-  target: string;         // the word or sound attempted, e.g. "sun" or "the snake sound"
+  sound: Sound;           // the lesson's target sound, or rhyming
+  target: string;         // the word or sound attempted, e.g. "sun", "the snake sound" or "cat, hat"
   mark: Mark;             // the grown-up's tap
   attempt: number;        // 1-based
   willRetry: boolean;     // the app will model the word again after this line
-  heard?: 's' | 'th' | 'sh' | 'stop';  // what the on-device check heard, when it heard something else
+  heard?: Heard;          // what the on-device check heard, when it heard something else
   avoid?: string[];       // Mibo's last few lines, so the next one says it differently
 };
 export type Reply = { say: string; mood: 'happy' | 'gentle' | 'surprised'; source: 'llm' | 'fallback'; ms?: number };
 
-const SOUND_TIP = {
-  s: 'teeth together, smile, and blow a long snake hiss',
-  th: 'tongue peeks out between the teeth and blows gently',
+export const SOUNDS = ['s', 'th', 'sh', 'z', 'rhyme', 'twisty'] as const;
+export type Sound = typeof SOUNDS[number];
+export const HEARDS = ['s', 'th', 'sh', 'z', 'stop'] as const;
+export type Heard = typeof HEARDS[number];
+
+const SOUND_NAME: Record<Sound, string> = {
+  s: '/s/ (snake sound)',
+  th: '/th/ as in thumb (tongue sound)',
+  sh: '/sh/ as in shoe (the quiet sound)',
+  z: '/z/ as in zoo (the buzzy bee sound)',
+  rhyme: 'rhyming words: the child says two words that rhyme',
+  twisty: 'a long twisty word, said slowly chunk by chunk and then whole',
 };
 
-const HEARD = {
-  s: 'a hissy s sound', th: 'the tongue poking out (a th sound)', sh: 'a shushy sh sound', stop: 'a quick t sound instead of a long hiss',
+const SOUND_TIP: Record<Sound, string> = {
+  s: 'teeth together, smile, and blow a long snake hiss',
+  th: 'tongue peeks out between the teeth and blows gently',
+  sh: 'lips push out round like a kiss, teeth close, and blow a long quiet sound',
+  z: 'teeth together, smile, and switch the voice on so it buzzes like a bee',
+  rhyme: 'listen to the ends of the two words: they sound the same',
+  twisty: 'break the word into little chunks, say each chunk slowly, then put them together',
+};
+
+const HEARD: Record<Heard, string> = {
+  s: 'a hissy s sound', th: 'the tongue poking out (a th sound)', sh: 'a shushy sh sound', z: 'a buzzy z sound',
+  stop: 'a quick t sound instead of a long hiss',
 };
 
 // A different angle each time keeps Mibo from saying "great snake sound!" over and over.
@@ -36,7 +55,7 @@ const ANGLES = [
   'Name the word they said and cheer for it.',
   'Praise what their mouth did (teeth, tongue, lips or blowing).',
   'Be silly and playful, like a cartoon friend.',
-  'Compare it to something fun (a sleepy snake, a bicycle tyre, a kettle).',
+  'Compare it to something fun (a sleepy snake, a buzzing bee, a bicycle tyre, a kettle).',
   'Keep it very short and bouncy, three or four words.',
   'Say how proud Mibo is, warmly.',
 ];
@@ -46,12 +65,12 @@ const SYSTEM = `You write ONE short line for Mibo, a friendly cartoon speech-pra
 Rules:
 - Max 14 words. Simple words a 4 year old knows. Warm, playful, specific. Full natural sentences ("your tongue", not "tongue").
 - Never say the child got it wrong, never "no", "wrong", "bad", "fail" or "incorrect". Praise effort.
-- If the try was tricky, give ONE tiny mouth tip for the sound, then encourage. Do not ask a question.
+- If the try was tricky, give ONE tiny tip (from mouthTip), then encourage. Do not ask a question.
 - If the try sounded right, celebrate it and name what they did ("your teeth stayed together!").
-- Do not write the sound stretched out (no "Sssss" or "Thhhh"): the app plays that clip itself.
+- Do not write the sound stretched out (no "Sssss", "Shhhh", "Zzzzz" or "Thhhh"): the app plays that clip itself.
 - Never mention doctors, therapy, diagnosis, or anything about the child's body beyond the mouth tip.
 - Do not ask for names or personal details. Do not say "your turn": the app says that.
-- Do not start with "Ooh", "Wow" or "Yay": Mibo has just said one of those. Don't always say "snake sound" or "tongue sound".
+- Do not start with "Ooh", "Wow" or "Yay": Mibo has just said one of those. Don't always use the sound's nickname ("snake sound", "quiet sound").
 - Never repeat or closely copy any line in "alreadySaid".
 Return JSON: {"say": string, "mood": "happy" | "gentle" | "surprised"}`;
 
@@ -70,7 +89,7 @@ export function fallbackReply(t: Turn): Reply {
 /** Checks a model line against the rules above; returns the cleaned line or null. */
 export function checkLine(raw: unknown): string | null {
   const say = String(raw ?? '').replace(/\s+/g, ' ').trim();
-  if (!say || say.split(' ').length > 18 || BLOCK.test(say) || /(s{3,}|h{3,})/i.test(say)) return null;
+  if (!say || say.split(' ').length > 18 || BLOCK.test(say) || /(s{3,}|h{3,}|z{3,})/i.test(say)) return null;
   return say;
 }
 
@@ -78,7 +97,7 @@ export async function writeReply(t: Turn, timeoutMs = 5000): Promise<Reply> {
   const key = process.env.META_AI_API_KEY;
   if (!key) { console.warn('[reply] META_AI_API_KEY is not set'); return fallbackReply(t); }
   const user = JSON.stringify({
-    targetSound: t.sound === 's' ? '/s/ (snake sound)' : '/th/ as in thumb (tongue sound)',
+    targetSound: SOUND_NAME[t.sound],
     mouthTip: SOUND_TIP[t.sound],
     attempted: t.target,
     grownUpHeard: t.mark === 'got' ? 'sounded right' : 'still tricky',

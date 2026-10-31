@@ -3,10 +3,12 @@ import { useCallback, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { hasConsent, saveConsent } from '@/lesson/consent';
 import { LESSONS, type LessonInfo } from '@/lesson/lessons';
 import { loadProgress, type Progress } from '@/lesson/progress';
 import { getMibo } from '@/puppet/mibo';
 import { MiboStage } from '@/puppet/MiboStage';
+import { ConsentCard } from '@/ui/ConsentCard';
 import { Backdrop, Bubble, Card, Column } from '@/ui/kit';
 import { C, F } from '@/ui/theme';
 
@@ -15,10 +17,13 @@ export default function Home() {
   const puppet = useMemo(() => new (getMibo().Puppet)(), []);
   const [saved, setSaved] = useState<Record<string, Progress | null>>({});
   const [ask, setAsk] = useState<LessonInfo | null>(null);
+  // the grown-up's consent is given once, at first app start; after that lessons just start
+  const [consented, setConsented] = useState<boolean>(() => hasConsent());
 
   // re-read progress every time the screen comes back into view
   useFocusEffect(useCallback(() => {
     setSaved(Object.fromEntries(LESSONS.map(l => [l.id, loadProgress(l.id)])));
+    setConsented(hasConsent());
   }, []));
 
   const open = (l: LessonInfo, resume: boolean) => {
@@ -41,6 +46,11 @@ export default function Home() {
             <Text style={styles.sub}>Pick a lesson to play</Text>
           </View>
         </View>
+        {!consented ? (
+          <View style={styles.gate}>
+            <ConsentCard buttonLabel="Start playing" onDone={hear => { saveConsent(hear); setConsented(true); }} />
+          </View>
+        ) : (
         <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
           {LESSONS.map(l => {
             const p = saved[l.id];
@@ -67,6 +77,7 @@ export default function Home() {
             );
           })}
         </ScrollView>
+        )}
 
         <Modal transparent visible={!!ask} animationType="fade" onRequestClose={() => setAsk(null)}>
           <Pressable style={styles.scrim} onPress={() => setAsk(null)}>
@@ -102,6 +113,7 @@ const styles = StyleSheet.create({
   hi: { fontFamily: F.bold, fontSize: 40, color: C.ink },
   sub: { fontFamily: F.medium, fontSize: 18, color: C.soft },
   list: { padding: 16, gap: 14 },
+  gate: { padding: 16, gap: 12 },
   lesson: {
     flexDirection: 'row', alignItems: 'center', gap: 14, borderRadius: 26, borderWidth: 2.5, padding: 14,
     shadowColor: '#6b5a8e', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 3,

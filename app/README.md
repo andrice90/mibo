@@ -1,6 +1,6 @@
 # Mibo app (Expo Go)
 
-Lesson 1, the snake sound /s/ and the tongue sound /θ/, with the hand-drawn puppet Mibo speaking in Leda's voice. Runs in **Expo Go** on iPhone and iPad (SDK 58), no native build.
+Four lessons (the snake and tongue sounds /s/ and /θ/, the quiet sound /ʃ/, the buzzy sound /z/, and Rhyme time), with the hand-drawn puppet Mibo speaking in Leda's voice. Runs in **Expo Go** on iPhone and iPad (SDK 58), no native build.
 
 ## Run it on your phone
 
@@ -22,8 +22,8 @@ To check it on a desktop browser: `npm run web:setup` once (copies CanvasKit), t
   - Mibo's intro
   - the grown-up checklist (supervision, not a therapist, AI replies, listening on the phone)
 - `src/app/lesson.tsx`: Mibo, captions, and the grown-up's ◀ ▶ arrows, always on screen.
-- `src/voice/listen.ts` + `src/voice/judge.ts`: after "your turn", Mibo listens on the phone (audio kept in memory only, then dropped) and checks the hiss: s, th, sh or a stopped t. No speech-to-text, which would hide a lisp. Calibrate with `npx tsx scripts/judge-test.ts --gen`.
-- `src/lesson/content.ts`: the lesson steps and every line Mibo says.
+- `src/voice/listen.ts` + `src/voice/judge.ts`: after "your turn", Mibo listens on the phone (audio kept in memory only, then dropped) and checks the hiss: s, th, sh, z or a stopped t. It checks the start of a word, the end of one (fish, bees), or a held sound. No speech-to-text, which would hide a lisp. Calibrate with `npx tsx scripts/judge-test.ts --gen`.
+- `src/lesson/content.ts`: every line Mibo says and each lesson's steps (`PLANS`): Lesson 1 (s, th), Lesson 2 (sh), Lesson 3 (z) and Rhyme time. The plans are in `docs/07-lessons-2-to-4.md`. Step kinds: `line`, `try` (say a sound or word), `pick` (tap one of two pictures) and `end`.
 - `src/lesson/useLesson.ts`: runs the lesson and saves its place. While the child has a go, it already asks for both possible replies, so the right one is ready when the try ends.
 - `src/app/api/reply+api.ts`: the live turn. It sends lesson state only (target word, how the try sounded, attempt number, never audio or names) to Muse Spark, which writes one checked line. Leda speaks it sentence by sentence. Anything slow or rejected falls back to a bundled line.
 - `src/puppet/`: draws `prototypes/mibo-puppet/mibo-puppet.js` (the same file as the browser lab) through a small Canvas2D-on-Skia shim, with the lab's three clocks: body 6 fps, mouth 24 fps, line boil 3 fps.

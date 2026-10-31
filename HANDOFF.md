@@ -12,7 +12,7 @@ Updated 2026-10-28, end of the day-one app session. Read this first, then `PROJE
 
 ## What the app does now
 
-- **Home (`src/app/index.tsx`):** the lesson list from `src/lesson/lessons.ts`. Lesson 1 is playable; Lessons 2–3 and Rhyme time show "Soon".
+- **Home (`src/app/index.tsx`):** the lesson list from `src/lesson/lessons.ts`. All four lessons are playable (Lessons 2–4 added late on 2026-10-28, not yet tried on a phone).
   - A lesson with saved progress offers Continue or Start over.
 - **Before a lesson (`src/app/welcome.tsx`):**
   - **Name step (silent):** saved names appear as chips ("Who's playing?"); a new name can be typed, or the step skipped.
@@ -23,6 +23,13 @@ Updated 2026-10-28, end of the day-one app session. Read this first, then `PROJE
   - the snake sound, then sun, sock, soap, seal
   - the tongue sound, then thumb, three, think
   - "Great job, {name}!" and a sticker card
+- **Lessons 2–4 (`docs/07-lessons-2-to-4.md`):** each lesson's steps are in `PLANS` in `content.ts`.
+  - **Lesson 2, the quiet sound (sh):** a kiss-and-smile warm-up, the held sound, shoe/ship/sheep/shell, a picture game (sock or shoe, ship or sun), then fish and brush at the end of the word.
+  - **Lesson 3, the buzzy bee sound (z):** a hum warm-up with a hand on the neck, then zoo/zebra/zero/zip, a picture game (zebra or fish, sip or zip), then bees and cheese.
+  - **Rhyme time:** say the pair (cat/hat, bee/tree, frog/log), then "what rhymes with…?" picture games (sock, mouse, cake, star).
+  - **Picture game (`pick` step):** two big picture cards under Mibo. A right tap gets a star and the answer. The first wrong tap gets "let's listen again" and the question again; after a second wrong tap Mibo shows the answer and moves on. ▶ counts as right, ◀ asks again.
+  - **Rhyme pairs:** any speech passes, since the check cannot hear a rhyme.
+  - **Preloading:** each lesson loads only its own clips plus the shared ones (`clipsFor`). All 96 clips together come to 18 MB.
 - **Each try:**
   1. "Watch my mouth", then the model clip, zoomed on the mouth.
   2. "Your turn": the mic starts recording during this line.
@@ -36,7 +43,7 @@ Updated 2026-10-28, end of the day-one app session. Read this first, then `PROJE
 - **Listening (PROJECT #48):**
   - **Recorder (`src/voice/listen.ts`):** uses expo-audio's recorder. Each try goes to a temporary WAV, is read back, then deleted.
   - **Window:** only what comes after Mibo's line counts (`arm()`). It ends on a 1.2 s pause or after 8 s.
-  - **Check (`src/voice/judge.ts`, `judgeTry`):** cuts the window into words and classifies each word's opening sound as s, th, sh or stop. It's a pass if any word has the target sound.
+  - **Check (`src/voice/judge.ts`, `judgeTry`):** cuts the window into words and classifies each word's opening sound as s, th, sh, z or stop. It reads the closing sound for end-of-word tries (fish, bees). It's a pass if any word has the target sound; an unvoiced z passes for z.
   - **Logs:** each try writes one `[hear] …` line to the dev-server terminal (numbers only), for tuning.
 - **Live replies (PROJECT #45):**
   - **Writer (`src/server/reply.ts`):** Muse Spark 1.3 on the Meta Model API, from lesson state only. It gets the target, the result, what was heard, the attempt number, a random angle, and Mibo's last 4 lines to avoid repeating them.
@@ -77,6 +84,9 @@ Updated 2026-10-28, end of the day-one app session. Read this first, then `PROJE
 - **The checker's thresholds** come from synthetic TTS calibration (33/36). They need real adult and child tries.
   - Today's privacy rule means tries are never saved, so calibration means reading the `[hear]` logs or a deliberate, consented recording session.
 - **TH model clips** pass the hiss check, but the check cannot tell /θ/ from /f/. Needs an ear check: `th_hold`, `word_thumb`, `word_three`, `word_think`.
+- **New model clips need an ear check:** `sh_hold`, `z_hold` (it must buzz, not say "zee"), and every sh and z `word_*`. The end-of-word ones split the word ("Fi... shhhhh. Fish!"). `z_turn` is 7 s for 8 words, so it may hold a demo buzz.
+- **Voiced z has not been tested:** every z in the TTS calibration came out unvoiced. Watch the `[hear]` lines when a child says zoo or zip.
+- **Rhyme pairs** pass on any speech; the ◀ arrow is the only way to ask for another go.
 - **Spend guard** is in-memory. A public deploy needs an app token on the API routes.
 - **Still open from PROJECT:** Gemini TTS licence terms for the app and demo, Meta Model API retention terms, and checking OpenRouter's retention setting for the name lines.
 
@@ -98,7 +108,7 @@ Updated 2026-10-28, end of the day-one app session. Read this first, then `PROJE
    - `setCategoryIOS` playAndRecord with `defaultToSpeaker`, so Mibo keeps talking
 
    Speech-to-text finds the word and its timing; `judgeTry()` grades the hiss in that word. Cloud speech-to-text is ruled out (#10, COPPA voice rules).
-6. **More lessons:** "sh", "z", rhyme time. They're content in `content.ts` plus a clips run.
+6. **Phone test of Lessons 2–4:** the checklist is at the end of `docs/07-lessons-2-to-4.md`.
 
 ## Environment notes
 

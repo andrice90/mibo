@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Puppet, Segment } from '../puppet/mibo';
-import { judgeTry, type Verdict } from '../voice/judge';
+import { judgeTry, type TryVerdict, type Verdict } from '../voice/judge';
+import { judgeWord } from '../voice/wordcheck';
 import { enableMic, listen, type Listening } from '../voice/listen';
 import { playClip, stopAudio, wavFile, type Clip } from '../voice/player';
 import { bundled, preloadClips } from './clips';
 import { nameClip } from './name';
-import { LESSON_1, MAX_ATTEMPTS, VARIANTS, type ClipId, type Exercise, type LineId } from './content';
+import { clipsFor, MAX_ATTEMPTS, MAX_PICKS, VARIANTS, type ClipId, type Exercise, type LineId, type Pick, type Step } from './content';
 
 export type Nav = 'fwd' | 'back';
-export type Phase = 'idle' | 'loading' | 'talking' | 'listening' | 'thinking' | 'done';
+export type Phase = 'idle' | 'loading' | 'talking' | 'listening' | 'picking' | 'thinking' | 'done';
 export type LessonUi = {
   phase: Phase; step: number; ex: Exercise | null; stars: number; live: string;
+  pick: Pick | null;       // the picture game on screen
+  picked: { i: number; ok: boolean } | null;   // the picture tapped (or shown as the answer)
   mic: boolean;            // listening with the microphone (else the arrows stand in)
   level: number;           // live mic level 0..1 while listening
   heard: Verdict | null;   // the last try's on-device check, for the grown-up's eyes only
@@ -22,28 +25,36 @@ class Stopped extends Error {}
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 /**
- * Runs Lesson 1 on a puppet.
+ * Runs a lesson (its steps from src/lesson/content.ts) on a puppet.
  *
  * Each try: Mibo shows the sound, says "your turn", and listens. The on-device
  * check (src/voice/judge.ts) decides: the right sound gets praise and a star;
  * a different sound gets a gentle live reply that knows what it heard, then
  * Mibo shows it again (up to 2 re-models, then moves on smiling).
  *
+ * A picture game: Mibo asks, the child taps one of two pictures. The right
+ * one gets praise, a star and the answer; the other gets "let's listen
+ * again" and the question once more, then Mibo shows the answer.
+ *
  * The grown-up's arrows are always there in case the check gets it wrong:
  * while Mibo listens, ▶ means "they did it" and ◀ means "show it again";
  * at any other moment they jump to the next or previous step.
  */
 export function useLesson(puppet: Puppet, opts: {
-  listen: boolean; from?: number; stars?: number;
+  steps: Step[]; listen: boolean; from?: number; stars?: number;
   onProgress?: (step: number, stars: number) => void; onDone?: () => void;
 }) {
-  const [ui, setUi] = useState<LessonUi>({ phase: 'idle', step: opts.from ?? 0, ex: null, stars: opts.stars ?? 0, live: '', mic: false, level: 0, heard: null });
+  const { steps } = opts;
+  const [ui, setUi] = useState<LessonUi>({
+    phase: 'idle', step: opts.from ?? 0, ex: null, stars: opts.stars ?? 0, live: '', pick: null, picked: null, mic: false, level: 0, heard: null,
+  });
   const stars = useRef(opts.stars ?? 0);
   const hooks = useRef(opts);
   useEffect(() => { hooks.current = opts; });
   const run = useRef(0);
   const step = useRef(0);
   const navWait = useRef<((n: Nav) => void) | null>(null);   // set while a try is waiting on the child
+  const tapWait = useRef<((i: number) => void) | null>(null); // set while a picture game is waiting on a tap
   const mic = useRef<Listening | null>(null);
   const turn = useRef<Record<string, number>>({});             // rotation through VARIANTS
   const said = useRef<string[]>([]);                            // Mibo's recent live lines
@@ -66,6 +77,7 @@ export function useLesson(puppet: Puppet, opts: {
   const runFrom = useCallback(async (from: number) => {
     const id = ++run.current;
     navWait.current = null;
+    tapWait.current = null;
     mic.current?.stop(); mic.current = null;
     stopAudio(); puppet.stop();
     const alive = () => { if (run.current !== id) throw new Stopped(); };
@@ -104,7 +116,19 @@ export function useLesson(puppet: Puppet, opts: {
       quit({});
       const h = got.h;
       if (!h.speech) return {};
-      const verdict = judgeTry(h.samples, h.sr, ex.sound, ex.model.endsWith('_hold') ? 'hold' : 'word');
+      // rhyme: the check cannot hear one, so any words count. Twisty words get
+      // their own check (wordcheck.ts): the said word must match the target.
+      let verdict: TryVerdict;
+      if (ex.sound === 'rhyme') {
+        verdict = { heard: 'none', match: true, speech: true, words: [] };
+      } else if (ex.sound === 'twisty') {
+        const w = judgeWord(h.samples, h.sr, ex.target);
+        console.log(`[hear-word] ${ex.target}: ${w.match ? 'PASS' : w.match === false ? 'wrong word' : '?'} best=${w.best ?? '-'} ` +
+          (w.dists ? Object.entries(w.dists).map(([k, d]) => `${k.slice(0, 4)}:${d}`).join(' ') : ''));
+        verdict = { heard: 'none', match: w.match, speech: true, words: [] };
+      } else {
+        verdict = judgeTry(h.samples, h.sr, ex.sound, ex.kind);
+      }
       // numbers only, for tuning against real sessions (shows in the dev server's log, never audio or words)
       console.log(`[hear] ${ex.target}: ${verdict.match ? 'PASS' : 'no'} ` + verdict.words.map(w =>
         `${w.heard}${w.match ? '✓' : ''}(${w.feats ? `${w.feats.ms}ms ${w.feats.centroid}Hz flat${w.feats.flatness} ${w.feats.relDb}dB` : '-'})`).join(' '));
@@ -116,14 +140,15 @@ export function useLesson(puppet: Puppet, opts: {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS;) {
         set({ phase: 'talking' });
         puppet.setMood('neutral');
-        if (attempt === 1) await play(pick('watch'));
+        if (attempt === 1) await play(ex.cue ?? pick('watch'));
         await play(ex.model, { watchAll: true });
         // Both likely replies are written and spoken while the child has a go.
         const ask = (mark: 'got' | 'tricky', heard?: string) => fetchReply({
           sound: ex.sound, target: ex.target, mark, attempt, willRetry: mark === 'tricky' && attempt < MAX_ATTEMPTS,
           heard, avoid: said.current,
         });
-        const replies = { got: ask('got'), tricky: ask('tricky') };
+        // (a rhyme pair passes on any words, so its tricky reply is only asked for if it is ever needed)
+        const replies = { got: ask('got'), tricky: ex.sound === 'rhyme' ? null : ask('tricky') };
         let result: { nav?: Nav; verdict?: Verdict } = {};
         for (let nudges = 0; ; nudges++) {
           // first "your turn" (or the nudge after a silence) plays while the mic is already recording
@@ -142,8 +167,8 @@ export function useLesson(puppet: Puppet, opts: {
         // a mismatch the check can name gets a reply that knows what it heard
         const heardElse = !ok && v && v.heard !== 'none' && v.heard !== ex.sound ? v.heard : undefined;
         const tricky = heardElse
-          ? Promise.race([ask('tricky', heardElse), sleep(2500).then(() => replies.tricky)])
-          : replies.tricky;
+          ? Promise.race([ask('tricky', heardElse), sleep(2500).then(() => replies.tricky ?? ask('tricky'))])
+          : replies.tricky ?? ask('tricky');
         const [reply] = await Promise.all([ok ? replies.got : tricky, play(react(ok))]);
         alive();
         set({ phase: 'talking', live: reply.source });
@@ -156,17 +181,55 @@ export function useLesson(puppet: Puppet, opts: {
       }
     };
 
+    const pickGame = async (p: Pick) => {
+      set({ ex: null, pick: p, picked: null, heard: null });
+      for (let attempt = 1; attempt <= MAX_PICKS;) {
+        const nav = new Promise<Nav>(res => { navWait.current = res; });
+        const tap = new Promise<number>(res => { tapWait.current = res; });
+        const answer = Promise.race([nav.then(n => ({ nav: n })), tap.then(i => ({ i }))]);
+        set({ phase: 'picking', picked: null });
+        puppet.setMood('neutral');
+        // a tap (or an arrow) while Mibo is still asking answers at once
+        const early = await Promise.race([answer, play(p.ask).then(() => null)]);
+        if (early) stopAudio(); else puppet.setMood('listening');
+        const got = early ?? await answer;
+        navWait.current = null; tapWait.current = null;
+        alive();
+        if ('nav' in got && got.nav === 'back') continue;   // grown-up: ask it again
+        const i = 'i' in got ? got.i : p.right;
+        const ok = i === p.right;
+        set({ phase: 'thinking', picked: { i, ok } });
+        puppet.setMood('thinking');
+        await play(react(ok));
+        if (ok) {
+          puppet.setMood('happy'); puppet.act('hop');
+          stars.current++; set({ stars: stars.current }); hooks.current.onProgress?.(step.current, stars.current);
+        }
+        if (ok || attempt === MAX_PICKS) {
+          // the answer, said and shown (after a second miss Mibo just shows it, smiling)
+          set({ phase: 'talking', picked: { i: p.right, ok: true } });
+          if (!ok) puppet.setMood('gentle');
+          await play(p.answer);
+          return;
+        }
+        set({ phase: 'talking' });
+        puppet.setMood('gentle');
+        await play('again');
+        attempt++;
+      }
+    };
+
     try {
       if (from === 0) { stars.current = 0; setUi(p => ({ ...p, stars: 0 })); }
-      set({ phase: 'loading', step: from, ex: null, heard: null });
-      await preloadClips();
+      set({ phase: 'loading', step: from, ex: null, pick: null, picked: null, heard: null });
+      await preloadClips(clipsFor(steps));
       const useMic = opts.listen && await enableMic();
       alive();
       set({ phase: 'talking', mic: useMic });
-      for (let i = from; i < LESSON_1.length; i++) {
-        const s = LESSON_1[i];
+      for (let i = from; i < steps.length; i++) {
+        const s = steps[i];
         step.current = i;
-        set({ step: i, ex: null });
+        set({ step: i, ex: null, pick: null, picked: null });
         hooks.current.onProgress?.(i, stars.current);
         if (s.kind === 'line') {
           if (s.mood) puppet.setMood(s.mood);
@@ -176,6 +239,8 @@ export function useLesson(puppet: Puppet, opts: {
           await play(s.clip, { watchAll: true });
         } else if (s.kind === 'try') {
           await tryExercise(s.ex, useMic);
+        } else if (s.kind === 'pick') {
+          await pickGame(s.pick);
         } else {
           puppet.setMood('happy');
           puppet.act('celebrate');
@@ -185,12 +250,12 @@ export function useLesson(puppet: Puppet, opts: {
         }
       }
       puppet.setMood('happy');
-      set({ phase: 'done', ex: null });
+      set({ phase: 'done', ex: null, pick: null, picked: null });
       hooks.current.onDone?.();
     } catch (e) {
       if (!(e instanceof Stopped)) throw e;
     }
-  }, [puppet, opts.listen]);
+  }, [puppet, opts.listen, steps]);
 
   const start = useCallback(() => runFrom(0), [runFrom]);
   // Start (or start again) where the lesson is: after a hot reload during
@@ -203,23 +268,30 @@ export function useLesson(puppet: Puppet, opts: {
     const waiting = navWait.current;
     if (waiting) { navWait.current = null; waiting(n); return; }
     const to = n === 'fwd' ? step.current + 1 : Math.max(0, step.current - 1);
-    if (to >= LESSON_1.length) { runFrom(LESSON_1.length - 1); return; }
+    if (to >= steps.length) { runFrom(steps.length - 1); return; }
     runFrom(to);
-  }, [runFrom]);
+  }, [runFrom, steps]);
+
+  /** The child taps a picture in a game (ignored unless Mibo is waiting for one). */
+  const choose = useCallback((i: number) => {
+    const waiting = tapWait.current;
+    if (waiting) { tapWait.current = null; waiting(i); }
+  }, []);
 
   const stop = useCallback(() => {
     run.current++;
     navWait.current = null;
+    tapWait.current = null;
     mic.current?.stop(); mic.current = null;
     stopAudio();
     puppet.stop();
     puppet.setMood('neutral');
-    setUi(p => ({ ...p, phase: 'idle', ex: null }));
+    setUi(p => ({ ...p, phase: 'idle', ex: null, pick: null, picked: null }));
   }, [puppet]);
 
   useEffect(() => () => { run.current++; mic.current?.stop(); stopAudio(); }, []);
 
-  return { ui, start, resume, stop, nav, total: LESSON_1.length };
+  return { ui, start, resume, stop, nav, choose, total: steps.length };
 }
 
 type ReplyIn = {
