@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mibo — three new character concepts</title>
+<style>
+  :root { --ink:#3d2b2b; --paper:#f7f3e9; --card:#fffdf7; --accent:#d96f4e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Trebuchet MS","Segoe UI",Verdana,sans-serif;
+    background-image:radial-gradient(rgba(61,43,43,.055) 1px, transparent 1.4px); background-size:22px 22px; }
+  header { max-width:1180px; margin:0 auto; padding:36px 22px 8px; }
+  h1 { font-size:34px; margin:0 0 8px; letter-spacing:.2px; }
+  header p { font-size:17px; line-height:1.5; max-width:760px; margin:0 0 6px; }
+  .timing { font-size:14px; opacity:.75; }
+  main { max-width:1180px; margin:0 auto; padding:18px 22px 30px;
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:20px; }
+  .card { background:var(--card); border:2.5px solid var(--ink); border-radius:18px 22px 16px 24px;
+    padding:16px 16px 18px; box-shadow:4px 5px 0 rgba(61,43,43,.14); }
+  .card h2 { margin:2px 0 2px; font-size:24px; }
+  .card h2 span { color:var(--accent); }
+  .tag { font-size:14.5px; line-height:1.45; margin:0 0 10px; min-height:42px; }
+  canvas { width:100%; height:auto; display:block; background:#fdf8ec;
+    border:2px solid rgba(61,43,43,.55); border-radius:14px;
+    background-image:radial-gradient(rgba(61,43,43,.05) 1px, transparent 1.3px); background-size:18px 18px; }
+  .mouth { text-align:center; font-size:19px; font-weight:bold; margin:10px 0 4px; min-height:24px; }
+  .mouth small { display:block; font-size:12.5px; font-weight:normal; opacity:.65; }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+  button { font:inherit; font-size:14.5px; font-weight:bold; color:var(--ink); cursor:pointer;
+    background:#ffe9a8; border:2px solid var(--ink); border-radius:999px; padding:7px 15px;
+    box-shadow:2px 2.5px 0 rgba(61,43,43,.7); }
+  button:active { transform:translate(1.5px,2px); box-shadow:0 0 0 rgba(0,0,0,0); }
+  .why { font-size:14px; line-height:1.5; margin:12px 2px 0; padding-top:10px; border-top:2px dashed rgba(61,43,43,.3); }
+  .why b { color:var(--accent); }
+  footer { max-width:1180px; margin:0 auto; padding:0 22px 40px; font-size:15px; line-height:1.55; }
+  @media (prefers-reduced-motion: reduce) { .note-reduced { display:block; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Three new Mibos — pick a direction</h1>
+  <p>Each concept is fully animated and does the same teaching job as the current Mibo:
+     a big front-facing mouth you can copy, with teeth and tongue for <b>s</b>, <b>th</b> and <b>l</b>.
+     The mouth cycles through the sounds under each character. Use the buttons to make each one wave, hop or cheer.</p>
+  <p class="timing">Hand-drawn timing kept from the current puppet: body poses held at 6 fps, lines boiling at 3 fps, mouth swapping faster over the held body. Watercolour washes, coloured-pencil lines, paper grain.</p>
+</header>
+<main id="cards"></main>
+<footer>
+  <b>How to choose:</b> judge the mouth first — could a 4-year-old copy that shape off a phone screen?
+  Then the silhouette at app-icon size, then which one your child would want to see again tomorrow.
+  Tell me A, B or C (or what to mix) and I will build the winner into the puppet rig properly.
+</footer>
+<script src="characters.js"></script>
+<script>
+'use strict';
+const CONCEPTS = [
+  { id:'bear', letter:'A', name:'Pudding Bear',
+    tag:'A squat honey bear whose cream muzzle is a stage for the mouth.',
+    why:'<b>Clearest mouth of the three</b> — the pale muzzle isolates every shape. Round ears read instantly at icon size. <b>Risk:</b> bears are common in kids\u2019 apps; the muzzle must stay large in the real rig.' },
+  { id:'dragon', letter:'B', name:'Sprout Dragon',
+    tag:'A gentle teal dragon with a leaf sprout, stub wings and a wagging tail.',
+    why:'<b>Most ownable silhouette</b> — horns, wings and tail survive at any size, and the tail gives free extra life. Flat face (no snout or beak) keeps teeth-and-tongue sounds readable. <b>Risk:</b> busiest drawing; needs care to stay calm at bedtime.' },
+  { id:'sheep', letter:'C', name:'Cloud Sheep',
+    tag:'A walking cloud of wool with a peach face and droopy ears.',
+    why:'<b>Softest and calmest</b> — good for shy or younger children, and the pale wool makes the peach face (and mouth) pop. <b>Risk:</b> wool puffs are the most work to animate cleanly, and pale-on-pale needs contrast discipline.' },
+];
+const cardsEl = document.getElementById('cards');
+const states = new Map();
+CONCEPTS.forEach(c => {
+  const el = document.createElement('section'); el.className = 'card';
+  el.innerHTML = `<h2><span>${c.letter}.</span> ${c.name}</h2><p class="tag">${c.tag}</p>
+    <canvas width="440" height="440" aria-label="${c.name} animated character"></canvas>
+    <div class="mouth"><span class="mname"></span><small>watch my mouth</small></div>
+    <div class="btns">
+      <button data-a="talk">Talk</button><button data-a="wave">Wave</button>
+      <button data-a="hop">Hop</button><button data-a="cheer">Cheer</button>
+    </div><p class="why">${c.why}</p>`;
+  cardsEl.appendChild(el);
+  const S = { canvas: el.querySelector('canvas'), label: el.querySelector('.mname'),
+    talking: true, action: null, actionAt: 0 };
+  el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.a === 'talk') { S.talking = !S.talking; b.textContent = S.talking ? 'Talk' : 'Talk'; }
+    else { S.action = b.dataset.a; S.actionAt = performance.now() / 1000; }
+  }));
+  states.set(c.id, S);
+});
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function tick(nowMs) {
+  const t = nowMs / 1000;
+  CONCEPTS.forEach((c, idx) => {
+    const S = states.get(c.id), ctx = S.canvas.getContext('2d');
+    // Held clocks: body 6 fps, boil 3 fps. Mouth swaps at ~5/s while talking.
+    const frame = Math.floor(t * 6), boil = Math.floor(t * 3);
+    const mi = S.talking && !reduced ? Math.floor(t * 5 + idx * 3) % TALK.length : 0;
+    const mKey = TALK[mi], m = MOUTHS[mKey];
+    if (S.action && t - S.actionAt > 1.5) S.action = null;
+    const blink = (t + idx * 1.3) % 3.4 < 0.13;
+    const look = Math.sin(frame * 0.35 + idx) * 0.7;
+    ctx.clearRect(0, 0, 440, 440);
+    ctx.strokeStyle = 'rgba(61,43,43,.35)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(70, 372); ctx.quadraticCurveTo(220, 380 + j(boil, 1, 3), 370, 372); ctx.stroke();
+    DESIGNS[c.id](ctx, { boil, frame: reduced ? 4 : frame, m, blink, look,
+      action: reduced ? null : S.action, actionT: S.action ? t - S.actionAt : 0, mood: 'happy' });
+    S.label.textContent = S.talking ? m.label : 'rest';
+  });
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
