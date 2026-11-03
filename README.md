@@ -59,4 +59,4 @@ See [`app/README.md`](app/README.md) to run it and [HANDOFF.md](HANDOFF.md) for 
 - **Live replies:** Meta Model API (Muse Spark 1.3), with keys held in Expo API routes.
 - **Storage:** on the device only.
 
-Built by a solo developer with Muse (Wonder + Spark). US English first.
+Built by a solo developer: Andrew Rice. US English first.
