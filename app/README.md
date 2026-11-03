@@ -35,6 +35,10 @@ To check it on a desktop browser: `npm run web:setup` once (copies CanvasKit), t
   - `src/voice/analyze.ts` keeps the frame classes used for the hiss check and as a fallback.
 - `src/ui/`: the friendly look: Fredoka font, pastel palette, candy buttons, cards.
 
+## Make a new lesson (grown-up flow)
+
+Home → **Make a new lesson**: the grown-up types the kind of words to work on, Meta AI (`META_AI_API_KEY`, Muse Spark) writes a plan via `POST /api/lesson-plan`, the grown-up reviews it, and only on acceptance does Leda (OpenRouter) speak its lines via `POST /api/lesson-voice`. The plan and WAVs are saved on the phone (`src/lesson/custom.ts`), so the lesson appears on the home screen and plays immediately — no rebuild. Tries in made lessons are judged by speech-to-text (`src/voice/stt.ts`, `expo-speech-recognition` with on-device recognition where supported; the recogniser's words only, never audio), so any word — including multi-syllable ones like `strawberry` — is checked the same way (`scripts/stt-test.ts`, `scripts/plan-test.ts`). Speech-to-text on iOS needs a dev build; in Expo Go there is no recogniser, so made-lesson tries are not gated there and the grown-up's arrows decide.
+
 ## Lip-sync aligner
 
 `npx tsx scripts/train-aligner.ts --gen` makes any missing training audio, about 40 varied sentences in Leda's voice (~$0.05, kept in the git-ignored `train-audio/`). It then retrains on those plus every lesson clip. After retraining, run `npx tsx scripts/make-clips.ts --reanalyze` to rebuild the bundled mouth tracks.

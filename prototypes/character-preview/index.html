@@ -61,7 +61,7 @@ const CONCEPTS = [
   { id:'dragon', letter:'B', name:'Sprout Dragon',
     tag:'A gentle teal dragon with a leaf sprout, stub wings and a wagging tail.',
     why:'<b>Most ownable silhouette</b> — horns, wings and tail survive at any size, and the tail gives free extra life. Flat face (no snout or beak) keeps teeth-and-tongue sounds readable. <b>Risk:</b> busiest drawing; needs care to stay calm at bedtime.' },
-  { id:'sheep', letter:'C', name:'Cloud Sheep',
+  { id:'sheep', letter:'C', name:'Cloud Sheep', ref:'sheep-reference.jpg', refNote:'Generated reference picked by the founder — the animated sheep now follows this face.',
     tag:'A walking cloud of wool with a peach face and droopy ears.',
     why:'<b>Softest and calmest</b> — good for shy or younger children, and the pale wool makes the peach face (and mouth) pop. <b>Risk:</b> wool puffs are the most work to animate cleanly, and pale-on-pale needs contrast discipline.' },
 ];
@@ -75,7 +75,8 @@ CONCEPTS.forEach(c => {
     <div class="btns">
       <button data-a="talk">Talk</button><button data-a="wave">Wave</button>
       <button data-a="hop">Hop</button><button data-a="cheer">Cheer</button>
-    </div><p class="why">${c.why}</p>`;
+    </div><p class="why">${c.why}</p>
+    ${c.ref ? `<img src="${c.ref}" alt="${c.name} generated reference" style="width:100%;border:2px solid rgba(61,43,43,.55);border-radius:14px;margin-top:12px"><p class="why" style="border:0;margin-top:6px">${c.refNote}</p>` : ''}`;
   cardsEl.appendChild(el);
   const S = { canvas: el.querySelector('canvas'), label: el.querySelector('.mname'),
     talking: true, action: null, actionAt: 0 };

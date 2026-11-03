@@ -179,6 +179,39 @@ function drawDragon(ctx, S) {
   if (S.action === 'cheer') stars(ctx, cx, cy, S.actionT, boil);
 }
 
+// Soft eyes for the sheep: no white sclera ball (that was the dead stare).
+// Dark warm eyes, small moving highlights, a lid line, and a happy squint.
+function softEye(ctx, x, y, o) {
+  ctx.lineCap = 'round';
+  if (o.blink || o.happy) {
+    // Happy eyes are upturned arcs; a blink is the same arc dropped lower.
+    ctx.strokeStyle = '#4a2f28'; ctx.lineWidth = o.happy ? 4 : 3.5;
+    const lift = o.happy ? -7 : 1, dip = o.happy ? 3 : 6;
+    ctx.beginPath(); ctx.moveTo(x - 10, y + dip); ctx.quadraticCurveTo(x, y + lift, x + 10, y + dip); ctx.stroke();
+    return;
+  }
+  const ry = 11 * (o.wide ? 1.18 : 1) * (1 - o.squint * 0.45);
+  ctx.beginPath(); ctx.ellipse(x, y, 9, ry, 0, 0, Math.PI * 2); ctx.fillStyle = '#4a2f28'; ctx.fill();
+  ctx.beginPath(); ctx.arc(x - 3 + o.look * 3, y - ry * 0.38 + o.lookY * 2, 3.1, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 3.4 + o.look * 3, y + ry * 0.34, 1.5, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fill();
+  ctx.strokeStyle = '#7a5540'; ctx.lineWidth = 2.1; // soft upper lid, follows the squint
+  ctx.beginPath(); ctx.moveTo(x - 10, y - ry * 0.55); ctx.quadraticCurveTo(x, y - ry * (1.05 - o.squint * 0.3), x + 10, y - ry * 0.55); ctx.stroke();
+  if (o.squint > 0.25) { // happy lower lid pushes up when smiling
+    ctx.beginPath(); ctx.moveTo(x - 8, y + ry * 0.72); ctx.quadraticCurveTo(x, y + ry * 0.4, x + 8, y + ry * 0.72); ctx.stroke();
+  }
+}
+// Soft, high brows. Angry reads as low + thick + inner-ends-down, so these
+// stay thin, light, well above the eyes, with the inner ends lifted most.
+function sheepBrows(ctx, cx, y, o) {
+  ctx.strokeStyle = 'rgba(196,152,105,.75)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  [-1, 1].forEach(s => {
+    const bx = cx + s * 28, lift = o.raise + (s < 0 ? o.asym : 0) + Math.sin(o.frame * 0.7) * 1.2;
+    const inner = bx - s * 13, outer = bx + s * 13; // inner = side nearest the nose
+    ctx.beginPath(); ctx.moveTo(outer, y - lift * 0.3);
+    ctx.quadraticCurveTo(bx, y - 8 - lift, inner, y - 3.5 - lift); ctx.stroke();
+  });
+}
+
 // --- C: Cloud Sheep --------------------------------------------------------
 // A walking cloud: wool made of overlapping puffs, peach face in the middle,
 // droopy ears, tiny dark legs. Softest silhouette; the face patch keeps the
@@ -196,8 +229,18 @@ function drawSheep(ctx, S) {
   [-1, 1].forEach(s => paint(ctx, cx + s * 74, cy - 34, circlePts(15, 30), boil + s + 4, '#f6c9a0', INK)); // ears
   paint(ctx, cx, cy - 6, circlePts(66, 58, 14, 6), boil + 6, '#ffd9b3', INK); // face
   paint(ctx, cx, cy - 66, circlePts(40, 20), boil + 9, '#fdfbf5', INK); // wool tuft
-  eye(ctx, cx - 28, cy - 20, 13, blink, look, INK); eye(ctx, cx + 28, cy - 20, 13, blink, look, INK);
-  brows(ctx, cx, cy - 40, 28, S.mood === 'wow' ? 7 : 2, INK);
+  // Face follows the generated take the founder picked: calm closed/happy
+  // eyes by default, open eyes only glancing sideways, the grin (closed
+  // happy arcs) reserved for the teeth sounds s/ee and for cheer.
+  const expr = m.tongue !== 'none' ? { raise: 4, asym: 6, squint: 0.08, wide: false, happy: false }
+    : m.h >= 55 ? { raise: 7, asym: 0, squint: 0, wide: true, happy: false }
+    : m.teeth >= 1 ? { raise: 5, asym: 0, squint: 0, wide: false, happy: true }
+    : { raise: 3, asym: 0, squint: 0.1, wide: false, happy: false };
+  if (S.action === 'cheer') { expr.raise = 8; expr.happy = true; }
+  const lookY = Math.sin(frame * 0.45) * 0.8 - (expr.wide ? 0.4 : 0.25); // gaze drifts, never locked forward
+  sheepBrows(ctx, cx, cy - 47, { raise: expr.raise, asym: expr.asym, frame });
+  softEye(ctx, cx - 27, cy - 19, { blink, happy: expr.happy, look, lookY, squint: expr.squint, wide: expr.wide });
+  softEye(ctx, cx + 27, cy - 19, { blink, happy: expr.happy, look, lookY, squint: expr.squint, wide: expr.wide });
   cheeks(ctx, cx, cy + 10, 56);
   mouth(ctx, cx, cy + 22, m, INK);
   ctx.restore();

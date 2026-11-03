@@ -26,6 +26,7 @@ export const SOUND = {
   z: { bg: C.butter, deep: C.butterDeep, name: 'buzzy sound' },
   rhyme: { bg: C.peach, deep: C.peachDeep, name: 'rhyming' },
   twisty: { bg: C.sky, deep: '#2f7fb8', name: 'twisty word' },
+  custom: { bg: C.rose, deep: '#c94f7c', name: 'my words' },
 };
 
 export const F = {

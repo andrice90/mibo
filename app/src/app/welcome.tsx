@@ -3,27 +3,29 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { bundled, preloadClips } from '@/lesson/clips';
+import { preloadClips } from '@/lesson/clips';
 import { hasConsent, loadConsent, saveConsent } from '@/lesson/consent';
 import { clipsFor, planFor } from '@/lesson/content';
-import { forgetLearnedName, forgetName, learnedNames, makeNameLines, nameClip, pickLearnedName, restoreName, savedName, validName } from '@/lesson/name';
+import { LESSONS } from '@/lesson/lessons';
+import { forgetLearnedName, forgetName, learnedNames, makeNameLines, pickLearnedName, restoreName, savedName, validName } from '@/lesson/name';
 import { clearProgress, loadProgress, saveProgress } from '@/lesson/progress';
 import { getMibo } from '@/puppet/mibo';
 import { MiboStage } from '@/puppet/MiboStage';
 import { Backdrop, Bubble, Card, Column, HomeButton } from '@/ui/kit';
 import { ConsentCard } from '@/ui/ConsentCard';
 import { C, F } from '@/ui/theme';
-import { playClip, stopAudio, type Clip } from '@/voice/player';
+import { stopAudio } from '@/voice/player';
 
-type Stage = 'ask' | 'making' | 'intro' | 'ready';
+type Stage = 'ask' | 'making' | 'ready';
 const CHIP = [C.mint, C.lavender, C.butter, C.peach, C.sky, C.rose];
 
 /**
  * Before a lesson. The grown-up picks or types the child's name (or skips),
- * silently; then Mibo says hello by name. The grown-up's consent is given
- * once, at first app start (home screen); after Mibo's hello this screen
- * goes straight into the lesson. Only if consent is somehow missing does
- * the checklist appear here, once, before the lesson starts.
+ * silently — nothing is spoken on this screen. The greeting and the lesson's
+ * first line play as one combined intro on the lesson screen (same puppet,
+ * no screen change mid-hello). The grown-up's consent is given once, at
+ * first app start (home screen); only if it is somehow missing does the
+ * checklist appear here, once, before the lesson starts.
  * Resuming (?resume=1) skips the name: the saved one and its clips are used.
  */
 export default function Welcome() {
@@ -41,7 +43,6 @@ export default function Welcome() {
   };
 
   const intro = async (useName: boolean, restored = false) => {
-    const say = (c: Clip) => playClip(puppet, c).catch(() => {});
     stopAudio();
     setStage('making');
     puppet.setMood('thinking');
@@ -49,13 +50,7 @@ export default function Welcome() {
     // remember the name and its clips with this lesson's progress, on this phone only
     const sn = savedName();
     if (named && sn) saveProgress(lessonId, { name: sn.name, nameLines: sn.lines });
-    setStage('intro');
-    puppet.setMood('happy');
-    const hi = named ? nameClip('hi') : null;
-    if (hi) { puppet.act('wave'); await say(hi); await say(bundled('welcomeRest')); }
-    else await say(bundled('welcome'));
-    puppet.setMood('neutral');
-    // consent already given (once, at first app start): straight into the lesson
+    // no spoken intro here: the lesson screen plays greeting + first line as one
     if (hasConsent()) { go(loadConsent()?.hear ?? true); return; }
     setStage('ready');
   };
@@ -63,7 +58,6 @@ export default function Welcome() {
   useEffect(() => {
     let live = true;
     (async () => {
-      await preloadClips(['welcome', 'welcomeRest']);
       if (!live) return;
       if (resume) {
         // picking up where they left off: the saved name (if any), no questions
@@ -92,7 +86,7 @@ export default function Welcome() {
           {stage !== 'ready' && (
             <View style={styles.hero}>
               <Text style={styles.hi}>{"Hi, I'm Mibo!"}</Text>
-              <Text style={styles.sub}>{"Let's practise the S and TH sounds together"}</Text>
+              <Text style={styles.sub}>{LESSONS.find(l => l.id === lessonId)?.subtitle ?? 'Let’s practise together'}</Text>
             </View>
           )}
           {/* the checklist must fit a standard iPhone without scrolling, so Mibo steps back for it */}
@@ -129,15 +123,15 @@ export default function Welcome() {
                   {"Grown-up: type the first name so Mibo can say it. It is sent once to our voice service to make Mibo's lines, kept on this phone, and never sent to the AI that writes his replies."}
                 </Text>
                 <View style={styles.row}>
-                  <Bubble label="Say hi!" bg={C.mint} deep={C.mintDeep} disabled={!validName(name)} onPress={() => intro(true)} />
+                  <Bubble label="Let's go!" bg={C.mint} deep={C.mintDeep} disabled={!validName(name)} onPress={() => intro(true)} />
                 </View>
                 <Pressable onPress={() => intro(false)} hitSlop={8}><Text style={styles.skip}>Skip</Text></Pressable>
               </Card>
             )}
-            {(stage === 'making' || stage === 'intro') && (
+            {stage === 'making' && (
               <Card style={[styles.card, styles.center]}>
-                {stage === 'making' && <ActivityIndicator color={C.lavenderDeep} />}
-                <Text style={styles.listen}>{stage === 'making' ? 'Mibo is learning your name…' : '👂 Listen to Mibo!'}</Text>
+                <ActivityIndicator color={C.lavenderDeep} />
+                <Text style={styles.listen}>Mibo is learning your name…</Text>
               </Card>
             )}
             {stage === 'ready' && (

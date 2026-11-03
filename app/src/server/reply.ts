@@ -22,7 +22,7 @@ export type Turn = {
 };
 export type Reply = { say: string; mood: 'happy' | 'gentle' | 'surprised'; source: 'llm' | 'fallback'; ms?: number };
 
-export const SOUNDS = ['s', 'th', 'sh', 'z', 'rhyme', 'twisty'] as const;
+export const SOUNDS = ['s', 'th', 'sh', 'z', 'rhyme', 'twisty', 'custom'] as const;
 export type Sound = typeof SOUNDS[number];
 export const HEARDS = ['s', 'th', 'sh', 'z', 'stop'] as const;
 export type Heard = typeof HEARDS[number];
@@ -34,6 +34,7 @@ const SOUND_NAME: Record<Sound, string> = {
   z: '/z/ as in zoo (the buzzy bee sound)',
   rhyme: 'rhyming words: the child says two words that rhyme',
   twisty: 'a long twisty word, said slowly chunk by chunk and then whole',
+  custom: 'practising a new word from a lesson the grown-up made',
 };
 
 const SOUND_TIP: Record<Sound, string> = {
@@ -43,6 +44,7 @@ const SOUND_TIP: Record<Sound, string> = {
   z: 'teeth together, smile, and switch the voice on so it buzzes like a bee',
   rhyme: 'listen to the ends of the two words: they sound the same',
   twisty: 'break the word into little chunks, say each chunk slowly, then put them together',
+  custom: 'say the word slowly and clearly, then say it whole',
 };
 
 const HEARD: Record<Heard, string> = {

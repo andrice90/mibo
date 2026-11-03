@@ -74,20 +74,27 @@ export function MiboStage({ puppet }: { puppet: Puppet }) {
       picture.value = rec.finishRecordingAsPicture();
     };
 
+    let warned = false;
     const frame = (now: number) => {
-      const dt = (now - last) / 1000; last = now;
-      puppet.update(dt);
-      const k = puppet.mouthKey;
-      if (k) mouthTime[k] = (mouthTime[k] || 0) + dt * (k === 'gap' ? 0.4 : 1);
-      acc += dt; mouthAcc += dt; boilAcc += dt;
-      if (boilAcc >= 1 / S.boilFps) { boilAcc %= 1 / S.boilFps; boilFrame = (boilFrame + 1) % 3; dirty = true; }
-      if (acc >= 1 / S.motionFps || !pose) { acc %= 1 / S.motionFps; pose = holdPose(); dirty = true; }
-      if (mouthAcc >= 1 / S.mouthFps || !mouth) { mouthAcc %= 1 / S.mouthFps; mouth = holdMouth(); dirty = true; }
-      if (dirty) {
-        render({ ...pose, P: { ...pose.P, ...mouth } }, boilFrame);
-        dirty = false;
-      }
+      // reschedule first: one bad frame must never kill the loop and blank Mibo
       raf = requestAnimationFrame(frame);
+      const dt = (now - last) / 1000; last = now;
+      try {
+        puppet.update(dt);
+        const k = puppet.mouthKey;
+        if (k) mouthTime[k] = (mouthTime[k] || 0) + dt * (k === 'gap' ? 0.4 : 1);
+        acc += dt; mouthAcc += dt; boilAcc += dt;
+        if (boilAcc >= 1 / S.boilFps) { boilAcc %= 1 / S.boilFps; boilFrame = (boilFrame + 1) % 3; dirty = true; }
+        if (acc >= 1 / S.motionFps || !pose) { acc %= 1 / S.motionFps; pose = holdPose(); dirty = true; }
+        if (mouthAcc >= 1 / S.mouthFps || !mouth) { mouthAcc %= 1 / S.mouthFps; mouth = holdMouth(); dirty = true; }
+        if (dirty) {
+          render({ ...pose, P: { ...pose.P, ...mouth } }, boilFrame);
+          dirty = false;
+        }
+      } catch (e) {
+        // keep the last good picture on screen instead of going blank
+        if (!warned) { warned = true; console.warn("[mibo] frame skipped:", (e as Error).message); }
+      }
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);

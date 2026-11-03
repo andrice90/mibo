@@ -20,7 +20,8 @@
  * the said word is matched against the target word's template, so a
  * different word does not pass; a muddled try at the right word does.
  */
-export type Sound = 's' | 'th' | 'sh' | 'z' | 'rhyme' | 'twisty';
+/** `custom`: a word from a grown-up-made lesson whose first sound the check cannot hear yet; any clear try passes and the grown-up's arrows override. */
+export type Sound = 's' | 'th' | 'sh' | 'z' | 'rhyme' | 'twisty' | 'custom';
 
 /** Talk lines. Keys are clip ids. */
 export const LINES = {
@@ -214,20 +215,23 @@ export type ClipId = LineId | ModelId;
  * before the model (default "Watch my mouth").
  */
 export type Exercise = {
-  sound: Sound; target: string; model: ClipId; prompt: LineId; emoji: string;
-  kind: 'hold' | 'word' | 'end'; cue?: LineId;
+  sound: Sound; target: string; model: string; prompt: string; emoji: string;
+  kind: 'hold' | 'word' | 'end'; cue?: string;
+  /** `stt`: judge by speech-to-text transcript (made lessons: any word can be checked). Default: the acoustic hiss check. */
+  check?: 'stt';
 };
 
 /** A picture game: Mibo asks, the child taps one of two pictures. */
 export type Choice = { word: string; emoji: string };
-export type Pick = { sound: Sound; ask: LineId; answer: LineId; choices: [Choice, Choice]; right: 0 | 1; word?: Choice };
+export type Pick = { sound: Sound; ask: string; answer: string; choices: [Choice, Choice]; right: 0 | 1; word?: Choice };
 
+/** Clip ids are bundled ids for built-in lessons, or `dyn_*` ids resolved from a made lesson's saved voice (src/lesson/custom.ts). */
 export type Step =
-  | { kind: 'line'; clip: LineId; mood?: string; act?: string; sound?: Sound }
-  | { kind: 'model'; clip: ModelId }
+  | { kind: 'line'; clip: string; mood?: string; act?: string; sound?: Sound }
+  | { kind: 'model'; clip: string }
   | { kind: 'try'; ex: Exercise }
   | { kind: 'pick'; pick: Pick }
-  | { kind: 'end'; clip: LineId };
+  | { kind: 'end'; clip: string };
 
 const word = (sound: Sound, w: string, emoji: string, kind: 'word' | 'end' = 'word'): Exercise =>
   ({ sound, target: w, model: `word_${w}` as ModelId, prompt: 'sayIt', emoji, kind });
@@ -326,6 +330,14 @@ export const TWISTY_WORDS: Step[] = [
   { kind: 'end', clip: 'tw_bye' },
 ];
 
+/**
+ * Where a fresh lesson starts when a greeting was already played: a named
+ * child hears "Hi {name}!" instead of the first line's "Hi friend!", so
+ * that first line is skipped; anonymous children start at the first line.
+ */
+export const firstStepAfterGreeting = (steps: Step[], hasGreeting: boolean): number =>
+  (hasGreeting && steps[0]?.kind === 'line' ? 1 : 0);
+
 /** Each lesson's steps, by the id the home screen uses (src/lesson/lessons.ts). */
 export const PLANS: Record<string, Step[]> = { 's-th': LESSON_1, sh: LESSON_SH, z: LESSON_Z, rhyme: RHYME_TIME, twisty: TWISTY_WORDS };
 
@@ -351,8 +363,8 @@ export function stepSounds(steps: Step[]): Sound[] {
 }
 
 /** Every clip a lesson can play, so only those are preloaded to the phone. */
-export function clipsFor(steps: Step[]): ClipId[] {
-  const ids = new Set<ClipId>([...Object.values(VARIANTS).flat(), 'again',
+export function clipsFor(steps: Step[]): string[] {
+  const ids = new Set<string>([...Object.values(VARIANTS).flat(), 'again',
     ...(['fb_got_1', 'fb_got_2', 'fb_got_3', 'fb_tricky_1', 'fb_tricky_2', 'fb_tricky_3'] as const)]);
   for (const s of steps) {
     if (s.kind === 'line' || s.kind === 'model' || s.kind === 'end') ids.add(s.clip);

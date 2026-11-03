@@ -4,6 +4,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { planFor, stepSounds } from '@/lesson/content';
+import { buildSteps, dynClips as madeClips, getCustomLesson } from '@/lesson/custom';
+import { nameClip } from '@/lesson/name';
 import { clearProgress, loadProgress, saveProgress } from '@/lesson/progress';
 import { useLesson } from '@/lesson/useLesson';
 import { getMibo, listenCaptions } from '@/puppet/mibo';
@@ -21,14 +23,19 @@ const STICKERS = ['🦄', '🐙', '🦕', '🐝', '🌈', '🚀', '🐸', '🦁'
  */
 export default function Lesson() {
   const puppet = useMemo(() => new (getMibo().Puppet)(), []);
-  const params = useLocalSearchParams<{ listen?: string; lesson?: string; from?: string }>();
-  const lessonId = params.lesson ?? 's-th';
-  const steps = useMemo(() => planFor(lessonId), [lessonId]);
+  const params = useLocalSearchParams<{ listen?: string; lesson?: string; from?: string; custom?: string }>();
+  const made = useMemo(() => (params.custom ? getCustomLesson(params.custom) : null), [params.custom]);
+  const lessonId = made ? `custom-${made.id}` : (params.lesson ?? 's-th');
+  const steps = useMemo(() => (made ? buildSteps(made.plan) : planFor(lessonId)), [made, lessonId]);
+  const dyn = useMemo(() => (made ? madeClips(made) : undefined), [made]);
   // each step's sound: the progress dots take that sound's colour
   const sounds = useMemo(() => stepSounds(steps).map(s => SOUND[s]), [steps]);
   const from = Math.max(0, Math.min(steps.length - 1, Number(params.from) || 0));
+  // combined intro: the name greeting (when there is one) plays here, on this
+  // puppet, immediately before the lesson's own first line — no separate intro screen speaking
+  const introClip = useMemo(() => (made ? null : nameClip('hi')), [made]);
   const { ui, start, resume, stop, nav, choose, total } = useLesson(puppet, {
-    steps, listen: params.listen !== '0', from, stars: from ? loadProgress(lessonId)?.stars ?? 0 : 0,
+    steps, dynClips: dyn, introClip, listen: params.listen !== '0', from, stars: from ? loadProgress(lessonId)?.stars ?? 0 : 0,
     // remember the place on this phone, so the home screen can offer "continue"
     onProgress: (step, stars) => saveProgress(lessonId, { step, stars }),
     onDone: () => clearProgress(lessonId),

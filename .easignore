@@ -1,0 +1,13 @@
+# EAS uploads the whole git repo, not just app/. These live in the repo for
+# design/history reasons but are never read by the iOS build (the app icon,
+# voice clips and puppet source are copied/linked inside app/ or kept below).
+/branding/
+/assets/
+/generated_images/
+/.venv/
+/prototypes/character-preview/
+/prototypes/voice-bakeoff/
+app/train-audio/
+app/public/canvaskit.wasm
+app/expo-web.log
+app/expo-web.err.log

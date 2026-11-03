@@ -15,6 +15,7 @@ export async function preloadClips(ids?: string[]): Promise<void> {
     all ??= preload(CLIP_AUDIO).then(l => { local = { ...local, ...l }; }, () => { all = null; });
     return all;
   }
-  const want = Object.fromEntries(ids.filter(id => !local[id]).map(id => [id, CLIP_AUDIO[id]]));
+  // `dyn_*` clips from made lessons are already files on the phone, not bundled modules
+  const want = Object.fromEntries(ids.filter(id => !local[id] && CLIP_AUDIO[id]).map(id => [id, CLIP_AUDIO[id]]));
   local = { ...local, ...(await preload(want).catch(() => ({}))) };
 }

@@ -56,7 +56,10 @@ export async function POST(req: Request) {
     }
     // Mibo's own recent lines (the app got them from this route); short and few, never child text
     if (Array.isArray(b.avoid)) t.avoid = b.avoid.slice(-4).map((x: unknown) => String(x).slice(0, 140));
-    if (!SOUNDS.includes(t.sound) || !TARGETS.has(t.target) || !['got', 'tricky'].includes(t.mark)
+    // Built-in words use the allowlist; words from a grown-up-made lesson are
+    // accepted as plain words only (they reach the model solely as "attempted").
+    const wordLike = /^[A-Za-z][A-Za-z, '-]{0,40}$/.test(t.target);
+    if (!SOUNDS.includes(t.sound) || !(TARGETS.has(t.target) || wordLike) || !['got', 'tricky'].includes(t.mark)
       || !(t.attempt >= 1 && t.attempt <= MAX_ATTEMPTS)) throw new Error('bad turn');
   } catch {
     return Response.json({ error: 'bad request' }, { status: 400 });

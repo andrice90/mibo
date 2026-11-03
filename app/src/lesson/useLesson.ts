@@ -4,10 +4,12 @@ import type { Puppet, Segment } from '../puppet/mibo';
 import { judgeTry, type TryVerdict, type Verdict } from '../voice/judge';
 import { judgeWord } from '../voice/wordcheck';
 import { enableMic, listen, type Listening } from '../voice/listen';
+import { startStt } from '../voice/stt';
+import { matchTranscript } from '../voice/stt-match';
 import { playClip, stopAudio, wavFile, type Clip } from '../voice/player';
 import { bundled, preloadClips } from './clips';
 import { nameClip } from './name';
-import { clipsFor, MAX_ATTEMPTS, MAX_PICKS, VARIANTS, type ClipId, type Exercise, type LineId, type Pick, type Step } from './content';
+import { clipsFor, firstStepAfterGreeting, MAX_ATTEMPTS, MAX_PICKS, VARIANTS, type Exercise, type LineId, type Pick, type Step } from './content';
 
 export type Nav = 'fwd' | 'back';
 export type Phase = 'idle' | 'loading' | 'talking' | 'listening' | 'picking' | 'thinking' | 'done';
@@ -42,6 +44,10 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
  */
 export function useLesson(puppet: Puppet, opts: {
   steps: Step[]; listen: boolean; from?: number; stars?: number;
+  /** Voice for `dyn_*` clip ids (a grown-up-made lesson's saved files); bundled ids fall through. */
+  dynClips?: Record<string, Clip>;
+  /** Combined greeting played once at a fresh start, on this screen's puppet, right before the first step (the name line, when there is one). */
+  introClip?: Clip | null;
   onProgress?: (step: number, stars: number) => void; onDone?: () => void;
 }) {
   const { steps } = opts;
@@ -81,9 +87,10 @@ export function useLesson(puppet: Puppet, opts: {
     mic.current?.stop(); mic.current = null;
     stopAudio(); puppet.stop();
     const alive = () => { if (run.current !== id) throw new Stopped(); };
-    const play = async (c: ClipId | Clip, extra?: Partial<Segment>) => {
+    const play = async (c: string | Clip, extra?: Partial<Segment>) => {
       alive();
-      await playClip(puppet, typeof c === 'string' ? bundled(c) : c, extra);
+      const clip = typeof c === 'string' ? (hooks.current.dynClips?.[c] ?? bundled(c)) : c;
+      await playClip(puppet, clip, extra);
       alive();
     };
 
@@ -93,14 +100,16 @@ export function useLesson(puppet: Puppet, opts: {
      * starts recording with the prompt, so a child who jumps in is caught,
      * but only what comes after Mibo stops talking is judged.
      */
-    const waitTry = async (ex: Exercise, useMic: boolean, prompt: LineId | null): Promise<{ nav?: Nav; verdict?: Verdict }> => {
+    const waitTry = async (ex: Exercise, useMic: boolean, prompt: string | null): Promise<{ nav?: Nav; verdict?: Verdict }> => {
       const nav = new Promise<Nav>(res => { navWait.current = res; });
       let last = 0;
-      const l = useMic
+      // speech-to-text tries (made lessons): the recogniser, not the recorder, is the ear
+      const stt = ex.check === 'stt' && opts.listen ? startStt(ex.target) : null;
+      const l = useMic && !stt
         ? listen({ armed: false, onLevel: v => { const now = Date.now(); if (now - last > 90) { last = now; set({ level: v }); } } })
         : null;
       mic.current = l;
-      const quit = (r: { nav?: Nav; verdict?: Verdict }) => { l?.stop(); mic.current = null; navWait.current = null; set({ level: 0 }); return r; };
+      const quit = (r: { nav?: Nav; verdict?: Verdict }) => { stt?.stop(); l?.stop(); mic.current = null; navWait.current = null; set({ level: 0 }); return r; };
       if (prompt) {
         set({ phase: 'talking' });
         const early = await Promise.race([nav.then(n => ({ nav: n })), play(prompt).then(() => null)]);
@@ -110,6 +119,18 @@ export function useLesson(puppet: Puppet, opts: {
       l?.arm();
       puppet.setMood('listening');
       set({ phase: 'listening' });
+      if (stt) {
+        stt.start();
+        const got = await Promise.race([nav.then(n => ({ nav: n })), stt.done.then(t => ({ t }))]);
+        if ('nav' in got) return quit(got);
+        quit({});
+        const alts = got.t;
+        if (!alts?.length) return {};   // nothing heard: the nudge loop asks again
+        const match = matchTranscript(alts, ex.target);
+        console.log(`[stt] ${ex.target}: ${match ? 'PASS' : 'no'} heard="${alts[0]}"`);
+        const verdict: TryVerdict = { heard: 'none', match, speech: true, words: [] };
+        return { verdict };
+      }
       if (!l) return quit({ nav: await nav });
       const got = await Promise.race([nav.then(n => ({ nav: n })), l.done.then(h => ({ h }))]);
       if ('nav' in got) return quit(got);
@@ -119,7 +140,10 @@ export function useLesson(puppet: Puppet, opts: {
       // rhyme: the check cannot hear one, so any words count. Twisty words get
       // their own check (wordcheck.ts): the said word must match the target.
       let verdict: TryVerdict;
-      if (ex.sound === 'rhyme') {
+      if (ex.check === 'stt') {
+        // no recogniser in this build (Expo Go): never gate the word on the hiss check
+        verdict = { heard: 'none', match: true, speech: true, words: [] };
+      } else if (ex.sound === 'rhyme' || ex.sound === 'custom') {
         verdict = { heard: 'none', match: true, speech: true, words: [] };
       } else if (ex.sound === 'twisty') {
         const w = judgeWord(h.samples, h.sr, ex.target);
@@ -226,7 +250,16 @@ export function useLesson(puppet: Puppet, opts: {
       const useMic = opts.listen && await enableMic();
       alive();
       set({ phase: 'talking', mic: useMic });
-      for (let i = from; i < steps.length; i++) {
+      // one greeting only: named children hear "Hi {name}!" and skip the first
+      // line's "Hi friend!"; anonymous children start at that first line
+      let first = from;
+      if (from === 0 && hooks.current.introClip) {
+        puppet.setMood('happy');
+        puppet.act('wave');
+        await play(hooks.current.introClip);
+        first = firstStepAfterGreeting(steps, true);
+      }
+      for (let i = first; i < steps.length; i++) {
         const s = steps[i];
         step.current = i;
         set({ step: i, ex: null, pick: null, picked: null });
